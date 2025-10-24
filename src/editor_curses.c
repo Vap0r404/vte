@@ -82,6 +82,34 @@ static void show_help(void) {
     clear();
 }
 
+static void get_command_line(int row, char *out, int maxlen) {
+    int pos = 0, len = 0;
+    out[0] = '\0';
+    int cols; int rows; getmaxyx(stdscr, rows, cols);
+    while (1) {
+        int c = getch();
+        if (c == '\r' || c == '\n') break;
+        if (c == 27) { out[0] = '\0'; break; }
+        if (c == KEY_LEFT) { if (pos > 0) pos--; }
+        else if (c == KEY_RIGHT) { if (pos < len) pos++; }
+        else if (c == KEY_BACKSPACE || c == 127 || c == 8) {
+            if (pos > 0) {
+                for (int i = pos - 1; i < len - 1; ++i) out[i] = out[i+1];
+                pos--; len--; out[len] = '\0';
+            }
+        } else if (c >= 32 && c < 127) {
+            if (len + 1 < maxlen) {
+                for (int i = len; i > pos; --i) out[i] = out[i-1];
+                out[pos] = (char)c; pos++; len++; out[len] = '\0';
+            }
+        }
+        mvprintw(row, 1, "%s", out);
+        clrtoeol();
+        move(row, 1 + pos);
+        refresh();
+    }
+}
+
 
 
 static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t coloff, Mode mode, const char *status) {
@@ -132,10 +160,11 @@ int main(int argc, char **argv) {
         if (mode == MODE_NORMAL) {
             if (ch == ':') {
                 mode = MODE_COMMAND;
-                echo(); curs_set(1);
+                curs_set(1);
                 mvprintw(rows - 1, 0, ":"); clrtoeol();
-                char cmd[256]; move(rows - 1, 1); getnstr(cmd, 250);
-                noecho();
+                char cmd[256];
+                move(rows - 1, 1);
+                get_command_line(rows - 1, cmd, 250);
                 if (strcmp(cmd, "help") == 0 || strcmp(cmd, "h") == 0) {
                     show_help();
                 } else if (strncmp(cmd, "w ", 2) == 0) {
