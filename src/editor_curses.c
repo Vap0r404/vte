@@ -41,6 +41,49 @@ static int buffer_save(Buffer *b, const char *path) {
     return 0;
 }
 
+static void show_help(void) {
+    const char *help_lines[] = {
+        "vte - minimal vim-like editor (keys)",
+        "",
+        "Modes:",
+        "  NORMAL - navigate and enter commands/insert",
+        "  INSERT - type text (press Esc to return to NORMAL)",
+        "  COMMAND - press : to enter, supports :w, :w filename, :q, :wq, :h, :help",
+        "",
+        "Normal mode keys:",
+        "  h/j/k/l    - left/down/up/right",
+        "  Arrow keys - work as well",
+        "  i          - enter INSERT mode",
+        "  :          - enter COMMAND mode",
+        "",
+        "Command examples:",
+        "  :w         - save (requires editor started with filename)",
+        "  :w new.txt - save-as to new.txt",
+        "  :q         - quit",
+        "  :wq        - save and quit",
+        "  :h or :help- show this help",
+        "",
+        "Build & run:",
+        "  PowerShell: .\\build.ps1   (builds bin\\vte.exe)",
+        "  Cmd: build.bat",
+        "  Make: mingw32-make or make (if available)",
+        "",
+        "Press any key to return...",
+        NULL
+    };
+    int rows, cols; getmaxyx(stdscr, rows, cols);
+    clear();
+    int r = 0;
+    for (const char **p = help_lines; *p; ++p) {
+        mvprintw(r++, 0, "%s", *p);
+    }
+    refresh();
+    getch();
+    clear();
+}
+
+
+
 static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t coloff, Mode mode, const char *status) {
     int rows, cols; getmaxyx(stdscr, rows, cols);
     werase(stdscr);
@@ -93,7 +136,9 @@ int main(int argc, char **argv) {
                 mvprintw(rows - 1, 0, ":"); clrtoeol();
                 char cmd[256]; move(rows - 1, 1); getnstr(cmd, 250);
                 noecho();
-                if (strncmp(cmd, "w ", 2) == 0) {
+                if (strcmp(cmd, "help") == 0 || strcmp(cmd, "h") == 0) {
+                    show_help();
+                } else if (strncmp(cmd, "w ", 2) == 0) {
                     char *fname = cmd + 2;
                     if (buffer_save(&buf, fname) == 0) snprintf(status, sizeof(status), "Saved to %s", fname); else snprintf(status, sizeof(status), "Save failed");
                 } else if (strcmp(cmd, "w") == 0) {
