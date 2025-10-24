@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <curses.h>
+#include "modules/line_edit.h"
 
 #define MAX_LINES 65536
 #define LINE_CAP 8192
@@ -72,6 +73,7 @@ static void show_help(void) {
         NULL
     };
     int rows, cols; getmaxyx(stdscr, rows, cols);
+    (void)rows; (void)cols; /* suppress unused-var warnings: we only print static help */
     clear();
     int r = 0;
     for (const char **p = help_lines; *p; ++p) {
@@ -86,6 +88,7 @@ static void get_command_line(int row, char *out, int maxlen) {
     int pos = 0, len = 0;
     out[0] = '\0';
     int cols; int rows; getmaxyx(stdscr, rows, cols);
+    (void)rows; (void)cols; /* cols/rows not required here but keep for future */
     while (1) {
         int c = getch();
         if (c == '\r' || c == '\n') break;
@@ -149,6 +152,9 @@ int main(int argc, char **argv) {
     Mode mode = MODE_NORMAL;
     char status[256] = "";
 
+    /* line editor state used only in INSERT mode */
+    LineEdit le; le.buf = NULL; le.len = le.cap = le.pos = 0; int le_active = 0;
+
     initscr(); cbreak(); noecho(); keypad(stdscr, TRUE); curs_set(1);
 
     int ch;
@@ -169,7 +175,14 @@ int main(int argc, char **argv) {
                     show_help();
                 } else if (strncmp(cmd, "w ", 2) == 0) {
                     char *fname = cmd + 2;
-                    if (buffer_save(&buf, fname) == 0) snprintf(status, sizeof(status), "Saved to %s", fname); else snprintf(status, sizeof(status), "Save failed");
+                    /* clamp filename length when assembling status text to avoid snprintf truncation warning */
+                    char _fname_s[240] = "";
+                    if (fname && fname[0]) {
+                        /* use snprintf to safely truncate and avoid strncpy truncation warnings */
+                        snprintf(_fname_s, sizeof(_fname_s), "%.*s", (int)(sizeof(_fname_s) - 1), fname);
+                        _fname_s[sizeof(_fname_s)-1] = '\0';
+                    }
+                    if (buffer_save(&buf, fname) == 0) snprintf(status, sizeof(status), "Saved to %s", _fname_s); else snprintf(status, sizeof(status), "Save failed");
                 } else if (strcmp(cmd, "w") == 0) {
                     if (path) { if (buffer_save(&buf, path) == 0) snprintf(status, sizeof(status), "Saved"); else snprintf(status, sizeof(status), "Save failed"); } else snprintf(status, sizeof(status), "No filename");
                 } else if (strcmp(cmd, "q") == 0) break;
@@ -179,20 +192,86 @@ int main(int argc, char **argv) {
                 continue;
             }
             if (ch == 'i') { mode = MODE_INSERT; strcpy(status, ""); continue; }
-            if (ch == KEY_LEFT || ch == 'h') { if (cx > 0) cx--; }
-            else if (ch == KEY_RIGHT || ch == 'l') { if (cx < strlen(buf.lines[cy])) cx++; }
-            else if (ch == KEY_UP || ch == 'k') { if (cy > 0) { cy--; if (cx > strlen(buf.lines[cy])) cx = strlen(buf.lines[cy]); if (cy < rowoff) rowoff = cy; } }
-            else if (ch == KEY_DOWN || ch == 'j') { if (cy + 1 < buf.count) { cy++; if (cx > strlen(buf.lines[cy])) cx = strlen(buf.lines[cy]); if (cy >= rowoff + (size_t)max_display) rowoff = cy - max_display + 1; } }
+            if (ch == KEY_LEFT || ch == 'h') {
+                if (cx > 0) cx--;
+            } else if (ch == KEY_RIGHT || ch == 'l') {
+                if (cx < strlen(buf.lines[cy])) cx++;
+            } else if (ch == KEY_UP || ch == 'k') {
+                if (cy > 0) {
+                    cy--;
+                    if (cx > strlen(buf.lines[cy])) cx = strlen(buf.lines[cy]);
+                    if (cy < rowoff) {
+                        rowoff = cy;
+                    }
+                }
+            } else if (ch == KEY_DOWN || ch == 'j') {
+                if (cy + 1 < buf.count) {
+                    cy++;
+                    if (cx > strlen(buf.lines[cy])) cx = strlen(buf.lines[cy]);
+                    if (cy >= rowoff + (size_t)max_display) {
+                        rowoff = cy - max_display + 1;
+                    }
+                }
+            }
         } else if (mode == MODE_INSERT) {
-            if (ch == 27) { mode = MODE_NORMAL; continue; }
-            if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
-                if (cx > 0) { char *line = buf.lines[cy]; size_t len = strlen(line); for (size_t i = cx - 1; i < len; ++i) line[i] = line[i+1]; cx--; line[len - 1] = '\0'; }
-                else if (cx == 0 && cy > 0) { size_t prevlen = strlen(buf.lines[cy - 1]); size_t curlen = strlen(buf.lines[cy]); buf.lines[cy - 1] = realloc(buf.lines[cy - 1], prevlen + curlen + 1); strcat(buf.lines[cy - 1], buf.lines[cy]); free(buf.lines[cy]); for (size_t i = cy; i < buf.count - 1; ++i) buf.lines[i] = buf.lines[i + 1]; buf.count--; cy--; cx = prevlen; }
+            /* initialize line editor for the current line when first entering INSERT */
+            if (!le_active) { le_init(&le, buf.lines[cy]); le.pos = cx; le_active = 1; }
+
+            if (ch == 27) {
+                /* exit insert mode: write back the current line */
+                char *newline = le_take_string(&le);
+                if (newline) { free(buf.lines[cy]); buf.lines[cy] = newline; }
+                le_free(&le); le_active = 0; mode = MODE_NORMAL; continue;
+            }
+
+            if (ch == KEY_LEFT) { le_move_left(&le); }
+            else if (ch == KEY_RIGHT) { le_move_right(&le); }
+            else if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
+                if (!le_backspace(&le)) {
+                    /* at column 0: join with previous line if possible */
+                    if (le.pos == 0 && cy > 0) {
+                        size_t prevlen = strlen(buf.lines[cy - 1]);
+                        char *joined = realloc(buf.lines[cy - 1], prevlen + le.len + 1);
+                        if (joined) {
+                            memcpy(joined + prevlen, le.buf, le.len + 1);
+                            buf.lines[cy - 1] = joined;
+                            free(buf.lines[cy]);
+                            for (size_t i = cy; i < buf.count - 1; ++i) buf.lines[i] = buf.lines[i + 1];
+                            buf.count--;
+                            cy--;
+                            /* reinit line editor to the end of the joined line */
+                            le_free(&le);
+                            le_init(&le, buf.lines[cy]);
+                            le.pos = prevlen;
+                        }
+                    }
+                }
             } else if (ch == '\n' || ch == '\r') {
-                char *line = buf.lines[cy]; size_t len = strlen(line); char *left = malloc(cx + 1); strncpy(left, line, cx); left[cx] = '\0'; char *right = malloc(len - cx + 1); strcpy(right, line + cx); free(buf.lines[cy]); buf.lines[cy] = left; if (buf.count + 1 < MAX_LINES) { for (size_t i = buf.count; i > cy + 1; --i) buf.lines[i] = buf.lines[i - 1]; buf.lines[cy + 1] = right; buf.count++; cy++; cx = 0; } else free(right);
+                /* split the current line at cursor */
+                char *right = le_split(&le);
+                char *left = le_take_string(&le);
+                if (left) { free(buf.lines[cy]); buf.lines[cy] = left; }
+                if (right) {
+                    if (buf.count + 1 < MAX_LINES) {
+                        for (size_t i = buf.count; i > cy + 1; --i) buf.lines[i] = buf.lines[i - 1];
+                        buf.lines[cy + 1] = right; buf.count++; cy++;
+                        le_free(&le);
+                        le_init(&le, buf.lines[cy]);
+                        le.pos = 0;
+                    } else free(right);
+                }
             } else if (ch >= 32 && ch < 127) {
-                char *line = buf.lines[cy]; size_t len = strlen(line); if (cx > len) cx = len; if (len + 1 >= LINE_CAP) continue; char *newline = realloc(line, len + 2); if (!newline) continue; for (size_t i = len; i > cx; --i) newline[i] = newline[i - 1]; newline[cx] = (char)ch; newline[len + 1] = '\0'; buf.lines[cy] = newline; cx++; if ((int)cx - (int)coloff >= cols) coloff = cx - cols + 1; }
-            if (cy < rowoff) rowoff = cy; if (cy >= rowoff + (size_t)max_display) rowoff = cy - max_display + 1;
+                le_insert_char(&le, ch);
+            }
+
+            cx = le.pos;
+            if ((int)cx - (int)coloff >= cols) coloff = cx - cols + 1;
+            if (cy < rowoff) {
+                rowoff = cy;
+            }
+            if (cy >= rowoff + (size_t)max_display) {
+                rowoff = cy - max_display + 1;
+            }
         }
     }
 
