@@ -16,8 +16,8 @@ int mouse_handle_click(size_t *cx, size_t *cy, size_t *rowoff, size_t *coloff,
     int click_y = MOUSE_Y_POS;
     int click_x = MOUSE_X_POS;
 
-    /* Only handle left button clicks */
-    if (!(Mouse_status.button[0] & BUTTON_CLICKED))
+    /* Only handle left button press/release */
+    if (!(Mouse_status.button[0] & (BUTTON_PRESSED | BUTTON_RELEASED)))
         return 0;
 
     /* Ignore clicks on status/command lines */

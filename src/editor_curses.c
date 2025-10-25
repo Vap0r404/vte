@@ -22,6 +22,7 @@ typedef enum
 #include "internal/resize.h"
 #include "internal/mouse.h"
 #include "internal/wrap.h"
+#include "internal/utf8.h"
 
 static void show_help(void)
 {
@@ -289,7 +290,7 @@ int main(int argc, char **argv)
         nav.line_num_width = nav_calc_line_num_width(buf->count);
 
         draw_screen(buf, cx, cy, rowoff, coloff, mode, status, &le, le_active, nav.line_num_width);
-        ch = getch();
+        ch = utf8_getch();
 
         if (ch == KEY_RESIZE)
         {
@@ -300,7 +301,15 @@ int main(int argc, char **argv)
         if (ch == KEY_MOUSE)
         {
             if (mouse_handle_click(&cx, &cy, &rowoff, &coloff, buf->count, nav.line_num_width, max_display))
+            {
                 snprintf(status, sizeof(status), "Click: line %zu, col %zu", cy + 1, cx + 1);
+                /* If in INSERT mode, reinitialize line editor at new position */
+                if (mode == MODE_INSERT && le_active)
+                {
+                    le_init(&le, buf->lines[cy]);
+                    le.pos = (cx < le.len) ? cx : le.len;
+                }
+            }
             continue;
         }
 
@@ -676,6 +685,41 @@ int main(int argc, char **argv)
             {
                 if (le_insert_char(&le, ch))
                     buf->dirty = 1;
+            }
+            else if (ch >= 128 && ch <= 0x10FFFF)
+            {
+                /* UTF-8 multi-byte character: encode and insert */
+                char utf8[5];
+                int len = 0;
+                if (ch < 0x80)
+                {
+                    utf8[len++] = ch;
+                }
+                else if (ch < 0x800)
+                {
+                    utf8[len++] = 0xC0 | (ch >> 6);
+                    utf8[len++] = 0x80 | (ch & 0x3F);
+                }
+                else if (ch < 0x10000)
+                {
+                    utf8[len++] = 0xE0 | (ch >> 12);
+                    utf8[len++] = 0x80 | ((ch >> 6) & 0x3F);
+                    utf8[len++] = 0x80 | (ch & 0x3F);
+                }
+                else
+                {
+                    utf8[len++] = 0xF0 | (ch >> 18);
+                    utf8[len++] = 0x80 | ((ch >> 12) & 0x3F);
+                    utf8[len++] = 0x80 | ((ch >> 6) & 0x3F);
+                    utf8[len++] = 0x80 | (ch & 0x3F);
+                }
+                utf8[len] = '\0';
+                /* Insert each byte */
+                for (int i = 0; i < len; i++)
+                {
+                    if (le_insert_char(&le, (unsigned char)utf8[i]))
+                        buf->dirty = 1;
+                }
             }
 
             cx = le.pos;
