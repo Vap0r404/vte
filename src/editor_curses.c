@@ -18,7 +18,10 @@ typedef enum
 #include "modules/buffer.h"
 #include "modules/syntax.h"
 #include "modules/navigation.h"
+#include "modules/status.h"
 #include "internal/resize.h"
+#include "internal/mouse.h"
+#include "internal/wrap.h"
 
 static void show_help(void)
 {
@@ -183,18 +186,22 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
     }
     move(rows - 2, 0);
     clrtoeol();
+
+    /* Use status module to format status line */
     char mstr[16];
     strcpy(mstr, mode == MODE_INSERT ? "INSERT" : (mode == MODE_COMMAND ? "COMMAND" : (mode == MODE_SEARCH ? "SEARCH" : "NORMAL")));
-    /* show filename, buffer index and modified flag */
-    const char *fname = b->path && b->path[0] ? b->path : "[No file]";
-    char fbuf[256];
-    int idx = buffer_index();
-    size_t total = buffer_count();
-    if (b->dirty)
-        snprintf(fbuf, sizeof(fbuf), "%s [%d/%zu] [+]", fname, idx + 1, total);
-    else
-        snprintf(fbuf, sizeof(fbuf), "%s [%d/%zu]", fname, idx + 1, total);
-    mvprintw(rows - 2, 0, "-- %s -- %s  %s", mstr, fbuf, status ? status : "");
+    char status_line[512];
+    status_format(status_line, sizeof(status_line), mstr, b->path,
+                  buffer_index(), buffer_count(), b->dirty, cy, cx, cols);
+
+    mvprintw(rows - 2, 0, "%s", status_line);
+
+    /* Show status message if present */
+    if (status && status[0])
+    {
+        mvprintw(rows - 2, strlen(mstr) + strlen(b->path ? b->path : "[No file]") + 20, "  %s", status);
+    }
+
     move(rows - 1, 0);
     clrtoeol();
     refresh();
@@ -269,6 +276,7 @@ int main(int argc, char **argv)
     keypad(stdscr, TRUE);
     curs_set(1);
     syntax_init();
+    mouse_init();
 
     int ch;
     while (1)
@@ -286,6 +294,13 @@ int main(int argc, char **argv)
         if (ch == KEY_RESIZE)
         {
             handle_resize();
+            continue;
+        }
+
+        if (ch == KEY_MOUSE)
+        {
+            if (mouse_handle_click(&cx, &cy, &rowoff, &coloff, buf->count, nav.line_num_width, max_display))
+                snprintf(status, sizeof(status), "Click: line %zu, col %zu", cy + 1, cx + 1);
             continue;
         }
 

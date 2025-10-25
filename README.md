@@ -14,7 +14,7 @@ It provides a minimal, vim-inspired editing experience: Normal/Insert/Command mo
 - `src/editor_curses.c` — The core editor
 - `src/config.c` / `src/config.h` — Configuration system (:set commands, .vterc file)
 - `src/modules/` — Modular components (line editing, buffers, syntax, navigation)
-- `src/internal/` — Internal utilities (resize handling)
+- `src/internal/` — Internal utilities (resize, mouse etc.)
 - `Makefile` — GNU Make rules (also usable from MSYS2/MinGW)
 - `build.ps1` — PowerShell build script (native Windows)
 - `build.bat` — Batch build script (cmd.exe)

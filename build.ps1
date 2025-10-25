@@ -18,7 +18,7 @@ if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
 New-Item -ItemType Directory -Force -Path .\bin | Out-Null
 
 if ($Target -eq 'vte') {
-    $src = @(Join-Path -Path $PSScriptRoot -ChildPath "src\editor_curses.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\config.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\modules\line_edit.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\modules\buffer.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\modules\syntax.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\modules\navigation.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\internal\resize.c")
+    $src = @(Join-Path -Path $PSScriptRoot -ChildPath "src\editor_curses.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\config.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\modules\line_edit.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\modules\buffer.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\modules\syntax.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\modules\navigation.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\modules\status.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\internal\resize.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\internal\mouse.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\internal\wrap.c")
     $exe = Join-Path -Path $PSScriptRoot -ChildPath "bin\vte.exe"
     $linkopts = "-lpdcurses"
 }
