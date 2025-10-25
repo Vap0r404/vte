@@ -24,6 +24,84 @@ typedef enum
 #include "internal/wrap.h"
 #include "internal/utf8.h"
 
+/* Lightweight cache for wrap visual line counts per buffer line at a given width */
+typedef struct WrapCache
+{
+    int width;    /* cached text width; -1 when invalid */
+    size_t cap;   /* allocated size of counts array */
+    size_t count; /* logical number of lines tracked */
+    int *counts;  /* per-line visual line counts; -1 means unknown */
+} WrapCache;
+
+static void wrap_cache_init(WrapCache *c, size_t count)
+{
+    c->width = -1;
+    c->cap = count ? count : 1;
+    c->count = count;
+    c->counts = (int *)malloc(c->cap * sizeof(int));
+    for (size_t i = 0; i < c->cap; ++i)
+        c->counts[i] = -1;
+}
+
+static void wrap_cache_free(WrapCache *c)
+{
+    if (c->counts)
+        free(c->counts);
+    c->counts = NULL;
+    c->cap = c->count = 0;
+    c->width = -1;
+}
+
+static void wrap_cache_set_width(WrapCache *c, int width)
+{
+    if (c->width != width)
+    {
+        c->width = width;
+        for (size_t i = 0; i < c->count; ++i)
+            c->counts[i] = -1;
+    }
+}
+
+static void wrap_cache_ensure(WrapCache *c, size_t count)
+{
+    if (count > c->cap)
+    {
+        size_t new_cap = c->cap;
+        while (new_cap < count)
+            new_cap *= 2;
+        c->counts = (int *)realloc(c->counts, new_cap * sizeof(int));
+        for (size_t i = c->cap; i < new_cap; ++i)
+            c->counts[i] = -1;
+        c->cap = new_cap;
+    }
+    /* if shrinking, we keep capacity and just adjust logical count */
+    c->count = count;
+}
+
+static void wrap_cache_invalidate_line(WrapCache *c, size_t idx)
+{
+    if (idx < c->count)
+        c->counts[idx] = -1;
+}
+
+static void wrap_cache_invalidate_all(WrapCache *c)
+{
+    for (size_t i = 0; i < c->count; ++i)
+        c->counts[i] = -1;
+}
+
+static int wrap_cache_get(WrapCache *c, const char *line, size_t idx)
+{
+    if (idx >= c->count || c->width < 1)
+        return wrap_calc_visual_lines(line, c->width < 1 ? 1 : c->width);
+    int v = c->counts[idx];
+    if (v >= 0)
+        return v;
+    v = wrap_calc_visual_lines(line, c->width);
+    c->counts[idx] = v;
+    return v;
+}
+
 static void show_help(void)
 {
     const char *help_lines[] = {
@@ -162,7 +240,7 @@ static void get_command_line(int row, char *out, int maxlen)
     }
 }
 
-static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t coloff, Mode mode, const char *status, LineEdit *le, int le_active, int line_num_width)
+static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t coloff, Mode mode, const char *status, LineEdit *le, int le_active, int line_num_width, WrapCache *wc)
 {
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
@@ -182,7 +260,7 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
     for (size_t i = 0; i < b->count; ++i)
     {
         const char *ln = b->lines[i];
-        int vis = wrap_calc_visual_lines(ln, text_width);
+        int vis = wrap_cache_get(wc, ln, i);
         if ((size_t)vis > remain)
         {
             start_line = i;
@@ -259,7 +337,7 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
     for (size_t i = 0; i < cy; ++i)
     {
         const char *ln = b->lines[i];
-        int vis = wrap_calc_visual_lines(ln, text_width);
+        int vis = wrap_cache_get(wc, ln, i);
         vcursor += vis;
     }
     vcursor += ((int)cx - (int)coloff) / text_width;
@@ -315,6 +393,9 @@ int main(int argc, char **argv)
 
     /* pointer to currently active buffer */
     Buffer *buf = buffer_current();
+    /* wrap cache for current buffer */
+    WrapCache wc;
+    wrap_cache_init(&wc, buf->count);
     size_t cx = 0, cy = 0, rowoff = 0, coloff = 0;
     Mode mode = MODE_NORMAL;
     char status[256] = "";
@@ -357,12 +438,18 @@ int main(int argc, char **argv)
         /* Calculate line number width */
         nav.line_num_width = nav_calc_line_num_width(buf->count);
 
-        draw_screen(buf, cx, cy, rowoff, coloff, mode, status, &le, le_active, nav.line_num_width);
+        /* Update wrap cache width and size for this frame */
+        wrap_cache_set_width(&wc, cols - nav.line_num_width < 1 ? 1 : cols - nav.line_num_width);
+        wrap_cache_ensure(&wc, buf->count);
+
+        draw_screen(buf, cx, cy, rowoff, coloff, mode, status, &le, le_active, nav.line_num_width, &wc);
         ch = utf8_getch();
 
         if (ch == KEY_RESIZE)
         {
             handle_resize();
+            /* Invalidate wrap cache on resize */
+            wrap_cache_invalidate_all(&wc);
             continue;
         }
 
@@ -395,6 +482,7 @@ int main(int argc, char **argv)
                     le_init(&le, buf->lines[cy]);
                     le.pos = (cx < le.len) ? cx : le.len;
                     le_active = 1;
+                    /* clicked line may change wrapping on edit later, no action now */
                 }
             }
             continue;
@@ -446,6 +534,9 @@ int main(int argc, char **argv)
                         buf = buffer_current();
                         cx = cy = rowoff = coloff = 0;
                         snprintf(status, sizeof(status), "Opened %s", fname);
+                        /* reset wrap cache for new buffer */
+                        wrap_cache_free(&wc);
+                        wrap_cache_init(&wc, buf->count);
                     }
                     else
                         snprintf(status, sizeof(status), "Open failed: %s", fname);
@@ -456,6 +547,8 @@ int main(int argc, char **argv)
                     buf = buffer_current();
                     cx = cy = rowoff = coloff = 0;
                     snprintf(status, sizeof(status), "Buffer %d/%zu", buffer_index() + 1, buffer_count());
+                    wrap_cache_free(&wc);
+                    wrap_cache_init(&wc, buf->count);
                 }
                 else if (strcmp(cmd, "bp") == 0)
                 {
@@ -463,6 +556,8 @@ int main(int argc, char **argv)
                     buf = buffer_current();
                     cx = cy = rowoff = coloff = 0;
                     snprintf(status, sizeof(status), "Buffer %d/%zu", buffer_index() + 1, buffer_count());
+                    wrap_cache_free(&wc);
+                    wrap_cache_init(&wc, buf->count);
                 }
                 else if (strcmp(cmd, "w") == 0)
                 {
@@ -632,6 +727,7 @@ int main(int argc, char **argv)
                     free(buf->lines[cy]);
                     buf->lines[cy] = newline;
                     buf->dirty = 1;
+                    wrap_cache_invalidate_line(&wc, cy);
                 }
                 le_free(&le);
                 le_active = 0;
@@ -657,6 +753,8 @@ int main(int argc, char **argv)
                     {
                         free(buf->lines[cy]);
                         buf->lines[cy] = tmp;
+                        /* Current line content changed due to take_string; invalidate */
+                        wrap_cache_invalidate_line(&wc, cy);
                     }
                     cy--;
                     /* Re-init with new line */
@@ -736,6 +834,9 @@ int main(int argc, char **argv)
                             le_init(&le, buf->lines[cy]);
                             le.pos = prevlen;
                             buf->dirty = 1;
+                            /* Buffer structure changed; reset wrap cache */
+                            wrap_cache_ensure(&wc, buf->count);
+                            wrap_cache_invalidate_all(&wc);
                         }
                     }
                 }
@@ -763,6 +864,9 @@ int main(int argc, char **argv)
                         le_init(&le, buf->lines[cy]);
                         le.pos = 0;
                         buf->dirty = 1;
+                        /* Buffer grew; reset cache size and invalidate */
+                        wrap_cache_ensure(&wc, buf->count);
+                        wrap_cache_invalidate_all(&wc);
                     }
                     else
                         free(right);
@@ -771,7 +875,10 @@ int main(int argc, char **argv)
             else if (ch >= 32 && ch < 127)
             {
                 if (le_insert_char(&le, ch))
+                {
                     buf->dirty = 1;
+                    wrap_cache_invalidate_line(&wc, cy);
+                }
             }
             else if (ch >= 128 && ch <= 0x10FFFF)
             {
@@ -805,7 +912,10 @@ int main(int argc, char **argv)
                 for (int i = 0; i < len; i++)
                 {
                     if (le_insert_char(&le, (unsigned char)utf8[i]))
+                    {
                         buf->dirty = 1;
+                        wrap_cache_invalidate_line(&wc, cy);
+                    }
                 }
             }
 
