@@ -6,7 +6,6 @@
 
 #define MAX_LINES 65536
 #define LINE_CAP 8192
-
 typedef enum
 {
     MODE_NORMAL,
@@ -14,63 +13,8 @@ typedef enum
     MODE_COMMAND
 } Mode;
 
-typedef struct
-{
-    char *lines[MAX_LINES];
-    size_t count;
-    char *path; /* optional filename for this buffer */
-    int dirty;  /* modified since last save */
-} Buffer;
-
-#define MAX_BUFFERS 16
-static Buffer buffers[MAX_BUFFERS];
-static size_t buf_count = 0;
-static int cur_buf = 0;
-
-static void buffer_init(Buffer *b) { b->count = 0; }
-static void buffer_free(Buffer *b)
-{
-    for (size_t i = 0; i < b->count; ++i)
-        free(b->lines[i]);
-}
-
-static int buffer_load(Buffer *b, const char *path)
-{
-    FILE *f = fopen(path, "rb");
-    if (!f)
-        return -1;
-    char buf[LINE_CAP];
-    while (fgets(buf, sizeof(buf), f))
-    {
-        size_t len = strlen(buf);
-        while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r'))
-            buf[--len] = '\0';
-        b->lines[b->count] = malloc(len + 1);
-        strcpy(b->lines[b->count], buf);
-        b->count++;
-        if (b->count >= MAX_LINES)
-            break;
-    }
-    if (b->count == 0)
-    {
-        b->lines[0] = malloc(1);
-        b->lines[0][0] = '\0';
-        b->count = 1;
-    }
-    fclose(f);
-    return 0;
-}
-
-static int buffer_save(Buffer *b, const char *path)
-{
-    FILE *f = fopen(path, "wb");
-    if (!f)
-        return -1;
-    for (size_t i = 0; i < b->count; ++i)
-        fprintf(f, "%s\n", b->lines[i]);
-    fclose(f);
-    return 0;
-}
+#include "modules/buffer.h"
+#include "modules/syntax.h"
 
 static void show_help(void)
 {
@@ -88,12 +32,15 @@ static void show_help(void)
         "  i          - enter INSERT mode",
         "  :          - enter COMMAND mode",
         "",
-        "Command examples:",
-        "  :w         - save (requires editor started with filename)",
-        "  :w new.txt - save-as to new.txt",
-        "  :q         - quit",
-        "  :wq        - save and quit",
-        "  :h or :help- show this help",
+    "Command examples:",
+    "  :w         - save (requires editor started with filename)",
+    "  :w new.txt - save-as to new.txt",
+    "  :e filename - open filename in a buffer (creates/switches buffer)",
+    "  :bn        - switch to next buffer",
+    "  :bp        - switch to previous buffer",
+    "  :q         - quit",
+    "  :wq        - save and quit",
+    "  :h or :help- show this help",
         "",
         "Build & run:",
         "  PowerShell: .\\build.ps1   (builds bin\\vte.exe)",
@@ -160,7 +107,7 @@ static void get_command_line(int row, char *out, int maxlen)
     }
 }
 
-static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t coloff, Mode mode, const char *status, LineEdit *le, int le_active, const char *path, int dirty)
+static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t coloff, Mode mode, const char *status, LineEdit *le, int le_active)
 {
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
@@ -186,13 +133,15 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
     clrtoeol();
     char mstr[16];
     strcpy(mstr, mode == MODE_INSERT ? "INSERT" : (mode == MODE_COMMAND ? "COMMAND" : "NORMAL"));
-    /* show filename and modified flag */
-    const char *fname = path && path[0] ? path : "[No file]";
+    /* show filename, buffer index and modified flag */
+    const char *fname = b->path && b->path[0] ? b->path : "[No file]";
     char fbuf[256];
-    if (dirty)
-        snprintf(fbuf, sizeof(fbuf), "%s [+]", fname);
+    int idx = buffer_index();
+    size_t total = buffer_count();
+    if (b->dirty)
+        snprintf(fbuf, sizeof(fbuf), "%s [%d/%zu] [+]", fname, idx + 1, total);
     else
-        snprintf(fbuf, sizeof(fbuf), "%s", fname);
+        snprintf(fbuf, sizeof(fbuf), "%s [%d/%zu]", fname, idx + 1, total);
     mvprintw(rows - 2, 0, "-- %s -- %s  %s", mstr, fbuf, status ? status : "");
     move(rows - 1, 0);
     clrtoeol();
@@ -206,13 +155,12 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
 int main(int argc, char **argv)
 {
     /* initialize buffer pool and set current buffer */
-    for (int i = 0; i < MAX_BUFFERS; ++i) { buffer_init(&buffers[i]); buffers[i].path = NULL; buffers[i].dirty = 0; }
-    cur_buf = 0; buf_count = 1;
-    Buffer *buf = &buffers[cur_buf];
+    buffer_pool_init();
     if (argc >= 2)
     {
-        if (buffer_load(buf, argv[1]) != 0)
+        if (buffer_open_file(argv[1]) < 0)
         {
+            Buffer *buf = buffer_current();
             fprintf(stderr, "Could not open '%s' - starting empty\n", argv[1]);
             buf->lines[0] = malloc(1);
             buf->lines[0][0] = '\0';
@@ -220,14 +168,10 @@ int main(int argc, char **argv)
             if (buf->path) { free(buf->path); buf->path = NULL; }
             buf->dirty = 0;
         }
-        else
-        {
-            buf->path = strdup(argv[1]);
-            buf->dirty = 0;
-        }
     }
     else
     {
+        Buffer *buf = buffer_current();
         buf->lines[0] = malloc(1);
         buf->lines[0][0] = '\0';
         buf->count = 1;
@@ -235,6 +179,8 @@ int main(int argc, char **argv)
         buf->dirty = 0;
     }
 
+    /* pointer to currently active buffer */
+    Buffer *buf = buffer_current();
     size_t cx = 0, cy = 0, rowoff = 0, coloff = 0;
     Mode mode = MODE_NORMAL;
     char status[256] = "";
@@ -250,14 +196,15 @@ int main(int argc, char **argv)
     noecho();
     keypad(stdscr, TRUE);
     curs_set(1);
+    syntax_init();
 
     int ch;
     while (1)
     {
         int rows, cols;
-    getmaxyx(stdscr, rows, cols);
-    int max_display = rows - 2;
-    draw_screen(buf, cx, cy, rowoff, coloff, mode, status, &le, le_active, buf->path, buf->dirty);
+        getmaxyx(stdscr, rows, cols);
+        int max_display = rows - 2;
+    draw_screen(buf, cx, cy, rowoff, coloff, mode, status, &le, le_active);
         ch = getch();
         if (mode == MODE_NORMAL)
         {
@@ -274,7 +221,7 @@ int main(int argc, char **argv)
                 {
                     show_help();
                 }
-                if (strncmp(cmd, "w ", 2) == 0)
+                else if (strncmp(cmd, "w ", 2) == 0)
                 {
                     char *fname = cmd + 2;
                     /* clamp filename length when assembling status text to avoid snprintf truncation warning */
@@ -285,10 +232,11 @@ int main(int argc, char **argv)
                         snprintf(_fname_s, sizeof(_fname_s), "%.*s", (int)(sizeof(_fname_s) - 1), fname);
                         _fname_s[sizeof(_fname_s) - 1] = '\0';
                     }
-                    if (buffer_save(buf, fname) == 0)
+                    if (buffer_save_current(fname) == 0)
                     {
                         /* update buffer path to the saved filename */
-                        if (buf->path) free(buf->path);
+                        if (buf->path)
+                            free(buf->path);
                         buf->path = strdup(fname);
                         snprintf(status, sizeof(status), "Saved to %s", _fname_s);
                         buf->dirty = 0;
@@ -296,11 +244,37 @@ int main(int argc, char **argv)
                     else
                         snprintf(status, sizeof(status), "Save failed");
                 }
+                else if (strncmp(cmd, "e ", 2) == 0)
+                {
+                    char *fname = cmd + 2;
+                    if (buffer_open_file(fname) >= 0)
+                    {
+                        buf = buffer_current();
+                        cx = cy = rowoff = coloff = 0;
+                        snprintf(status, sizeof(status), "Opened %s", fname);
+                    }
+                    else
+                        snprintf(status, sizeof(status), "Open failed: %s", fname);
+                }
+                else if (strcmp(cmd, "bn") == 0)
+                {
+                    buffer_next();
+                    buf = buffer_current();
+                    cx = cy = rowoff = coloff = 0;
+                    snprintf(status, sizeof(status), "Buffer %d/%zu", buffer_index() + 1, buffer_count());
+                }
+                else if (strcmp(cmd, "bp") == 0)
+                {
+                    buffer_prev();
+                    buf = buffer_current();
+                    cx = cy = rowoff = coloff = 0;
+                    snprintf(status, sizeof(status), "Buffer %d/%zu", buffer_index() + 1, buffer_count());
+                }
                 else if (strcmp(cmd, "w") == 0)
                 {
                     if (buf->path)
                     {
-                        if (buffer_save(buf, buf->path) == 0)
+                        if (buffer_save_current(buf->path) == 0)
                         {
                             snprintf(status, sizeof(status), "Saved");
                             buf->dirty = 0;
@@ -317,7 +291,7 @@ int main(int argc, char **argv)
                 {
                     if (buf->path)
                     {
-                        if (buffer_save(buf, buf->path) == 0)
+                        if (buffer_save_current(buf->path) == 0)
                             buf->dirty = 0;
                     }
                     break;
@@ -333,16 +307,16 @@ int main(int argc, char **argv)
                 strcpy(status, "");
                 continue;
             }
-                if (ch == KEY_LEFT || ch == 'h')
+            if (ch == KEY_LEFT || ch == 'h')
             {
                 if (cx > 0)
                     cx--;
             }
-        else if (ch == KEY_RIGHT || ch == 'l')
-        {
-        if (cx < strlen(buf->lines[cy]))
-            cx++;
-        }
+            else if (ch == KEY_RIGHT || ch == 'l')
+            {
+                if (cx < strlen(buf->lines[cy]))
+                    cx++;
+            }
             else if (ch == KEY_UP || ch == 'k')
             {
                 if (cy > 0)
@@ -484,6 +458,6 @@ int main(int argc, char **argv)
     }
 
     endwin();
-    buffer_free(buf);
+    buffer_free_all();
     return 0;
 }
