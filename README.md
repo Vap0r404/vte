@@ -3,10 +3,16 @@
 `vte` is a tiny, single-file text editor written **COMPLETELY by AI** in C that uses a curses implementation (PDCurses on Windows or ncurses on Unix/WSL).
 It provides a minimal, vim-inspired editing experience: Normal/Insert/Command modes, simple navigation, basic line editing, and single-file open/save.
 
+## What this project is
+
+- A minimal, educational curses-based text editor.
+- Focus is on small, easy-to-read C code with curses UI, simple line-editor logic, and a tiny command mode.
+- Intended as a small and simple replacement for CLI text editors and a starting point for experimentation — add features if you want.
+
 ## Contents
 
 - `src/editor_curses.c` — The core
-- `src/modules/` - Modules folder (eg. line editing module)
+- `src/modules/` - Modules folder
 - `Makefile` — GNU Make rules (also usable from MSYS2/MinGW)
 - `build.ps1` — PowerShell build script (native Windows)
 - `build.bat` — Batch build script (cmd.exe)
@@ -17,32 +23,10 @@ It provides a minimal, vim-inspired editing experience: Normal/Insert/Command mo
   - Install MSYS2 (https://www.msys2.org/) and then install the `mingw-w64` toolchain
   - Or enable WSL and install `build-essential` in your Linux distro
   - PDCurses and the library
+ 
+## This repository contains the editor source and convenient build scripts for Windows and MSYS2/MinGW/WSL.
 
-## Quick start
-
-### PowerShell (recommended on native Windows)
-
-```powershell
-# Build and run vte
-.\build.ps1
-```
-
-# This repository contains the editor source, a small line-editing helper, and convenient build scripts for Windows and MSYS2/MinGW/WSL.
-
-## What this project is
-
-- A minimal, educational curses-based text editor.
-- Focus is on small, easy-to-read C code with curses UI, simple line-editor logic, and a tiny command mode.
-- Intended as a small and simple replacement for CLI text editors and a starting point for experimentation — add features if you want.
-
-## Contents
-
-- `src/editor_curses.c` — main editor implementation (drawing, modes, input loop)
-- `src/modules/line_edit.c` and `src/modules/line_edit.h` — a small line-edit helper used in INSERT/COMMAND modes
-- `build.bat` — Windows batch build script (cmd)
-- `build.ps1` — PowerShell build script
-- `Makefile` — optional `make` targets for environments that have `make`
-- `bin/` — output directory for built executables (not committed)
+# Quick start
 
 ## Prerequisites
 
