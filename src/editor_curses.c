@@ -49,7 +49,7 @@ static void show_help(void)
         "",
         "Buffers:",
         "  vte supports multiple buffers (up to 16 files open at once).",
-    "  The status line shows buffer index [N/Total], filename, and line:col.",
+        "  The status line shows buffer index [N/Total], filename, and line:col.",
         "  Each buffer tracks its own content, path, and modified state.",
         "  Use :e to open files and :bn/:bp to switch between buffers.",
         "",
