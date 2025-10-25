@@ -32,15 +32,15 @@ static void show_help(void)
         "  i          - enter INSERT mode",
         "  :          - enter COMMAND mode",
         "",
-    "Command examples:",
-    "  :w         - save (requires editor started with filename)",
-    "  :w new.txt - save-as to new.txt",
-    "  :e filename - open filename in a buffer (creates/switches buffer)",
-    "  :bn        - switch to next buffer",
-    "  :bp        - switch to previous buffer",
-    "  :q         - quit",
-    "  :wq        - save and quit",
-    "  :h or :help- show this help",
+        "Command examples:",
+        "  :w         - save (requires editor started with filename)",
+        "  :w new.txt - save-as to new.txt",
+        "  :e filename - open filename in a buffer (creates/switches buffer)",
+        "  :bn        - switch to next buffer",
+        "  :bp        - switch to previous buffer",
+        "  :q         - quit",
+        "  :wq        - save and quit",
+        "  :h or :help- show this help",
         "",
         "Build & run:",
         "  PowerShell: .\\build.ps1   (builds bin\\vte.exe)",
@@ -165,7 +165,11 @@ int main(int argc, char **argv)
             buf->lines[0] = malloc(1);
             buf->lines[0][0] = '\0';
             buf->count = 1;
-            if (buf->path) { free(buf->path); buf->path = NULL; }
+            if (buf->path)
+            {
+                free(buf->path);
+                buf->path = NULL;
+            }
             buf->dirty = 0;
         }
     }
@@ -204,7 +208,7 @@ int main(int argc, char **argv)
         int rows, cols;
         getmaxyx(stdscr, rows, cols);
         int max_display = rows - 2;
-    draw_screen(buf, cx, cy, rowoff, coloff, mode, status, &le, le_active);
+        draw_screen(buf, cx, cy, rowoff, coloff, mode, status, &le, le_active);
         ch = getch();
         if (mode == MODE_NORMAL)
         {

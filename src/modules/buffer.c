@@ -40,7 +40,8 @@ int buffer_index(void)
 
 int buffer_open_file(const char *path)
 {
-    if (!path) return -1;
+    if (!path)
+        return -1;
     /* If file already open, switch to it */
     for (size_t i = 0; i < buf_count; ++i)
     {
@@ -61,12 +62,13 @@ int buffer_open_file(const char *path)
     while (fgets(linebuf, sizeof(linebuf), f))
     {
         size_t len = strlen(linebuf);
-        while (len > 0 && (linebuf[len-1] == '\n' || linebuf[len-1] == '\r'))
+        while (len > 0 && (linebuf[len - 1] == '\n' || linebuf[len - 1] == '\r'))
             linebuf[--len] = '\0';
         b->lines[b->count] = malloc(len + 1);
         strcpy(b->lines[b->count], linebuf);
         b->count++;
-        if (b->count >= MAX_LINES) break;
+        if (b->count >= MAX_LINES)
+            break;
     }
     if (b->count == 0)
     {
@@ -86,13 +88,16 @@ int buffer_save_current(const char *path)
 {
     Buffer *b = buffer_current();
     const char *p = path ? path : b->path;
-    if (!p) return -1;
+    if (!p)
+        return -1;
     FILE *f = fopen(p, "wb");
-    if (!f) return -1;
+    if (!f)
+        return -1;
     for (size_t i = 0; i < b->count; ++i)
         fprintf(f, "%s\n", b->lines[i]);
     fclose(f);
-    if (b->path) free(b->path);
+    if (b->path)
+        free(b->path);
     b->path = strdup(p);
     b->dirty = 0;
     return 0;
@@ -100,14 +105,16 @@ int buffer_save_current(const char *path)
 
 int buffer_next(void)
 {
-    if (buf_count == 0) return 0;
+    if (buf_count == 0)
+        return 0;
     cur_buf = (cur_buf + 1) % (int)buf_count;
     return cur_buf;
 }
 
 int buffer_prev(void)
 {
-    if (buf_count == 0) return 0;
+    if (buf_count == 0)
+        return 0;
     cur_buf = (cur_buf - 1 + (int)buf_count) % (int)buf_count;
     return cur_buf;
 }
@@ -119,6 +126,7 @@ void buffer_free_all(void)
         Buffer *b = &buffers[i];
         for (size_t j = 0; j < b->count; ++j)
             free(b->lines[j]);
-        if (b->path) free(b->path);
+        if (b->path)
+            free(b->path);
     }
 }
