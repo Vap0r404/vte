@@ -6,7 +6,7 @@ It provides a minimal, vim-inspired editing experience: Normal/Insert/Command mo
 ## Contents
 
 - `src/editor_curses.c` — The core
-- `src/modules
+- `src/modules/` - Modules folder (eg. line editing module)
 - `Makefile` — GNU Make rules (also usable from MSYS2/MinGW)
 - `build.ps1` — PowerShell build script (native Windows)
 - `build.bat` — Batch build script (cmd.exe)
