@@ -1,35 +1,64 @@
-# Minimal C project
+# VTE
 
-This repository is a tiny C project scaffold for Windows. It includes a simple `Hello, C world!` program, a Makefile, and convenience build scripts for PowerShell and cmd.
+`vte` is a tiny, single-file text editor written **COMPLETELY by AI** in C that uses a curses implementation (PDCurses on Windows or ncurses on Unix/WSL).
+It provides a minimal, vim-inspired editing experience: Normal/Insert/Command modes, simple navigation, basic line editing, and single-file open/save.
 
 ## Contents
 
-- `src/main.c` — simple C program
+- `src/editor_curses.c` — The core
+- `src/modules
 - `Makefile` — GNU Make rules (also usable from MSYS2/MinGW)
 - `build.ps1` — PowerShell build script (native Windows)
 - `build.bat` — Batch build script (cmd.exe)
-- `.vscode/settings.json` — workspace settings
-- `.gitignore` — recommended ignores
 
 ## Prerequisites
 
 - A C compiler (GCC from MSYS2/MinGW, or GCC in WSL). If you don't have one, you can:
   - Install MSYS2 (https://www.msys2.org/) and then install the `mingw-w64` toolchain
   - Or enable WSL and install `build-essential` in your Linux distro
+  - PDCurses and the library
 
 ## Quick start
 
 ### PowerShell (recommended on native Windows)
 
 ```powershell
-# Build and run vte (curses-based editor)
+# Build and run vte
+.\build.ps1
+```
+
+# This repository contains the editor source, a small line-editing helper, and convenient build scripts for Windows and MSYS2/MinGW/WSL.
+
+## What this project is
+
+- A minimal, educational curses-based text editor.
+- Focus is on small, easy-to-read C code with curses UI, simple line-editor logic, and a tiny command mode.
+- Intended as a small and simple replacement for CLI text editors and a starting point for experimentation — add features if you want.
+
+## Contents
+
+- `src/editor_curses.c` — main editor implementation (drawing, modes, input loop)
+- `src/modules/line_edit.c` and `src/modules/line_edit.h` — a small line-edit helper used in INSERT/COMMAND modes
+- `build.bat` — Windows batch build script (cmd)
+- `build.ps1` — PowerShell build script
+- `Makefile` — optional `make` targets for environments that have `make`
+- `bin/` — output directory for built executables (not committed)
+
+## Prerequisites
+
+- A C compiler (GCC is the usual choice). On Windows you can use MSYS2/MinGW or WSL. On Windows the project links with PDCurses; on WSL/nix use ncurses.
+
+## Build & run (Windows, PowerShell)
+
+```powershell
+# Build and run (PowerShell)
 .\build.ps1
 
 # Clean
 .\build.ps1 -Clean
 ```
 
-### Command Prompt (cmd.exe)
+## Build & run (cmd)
 
 ```bat
 :: Build and run
@@ -39,49 +68,29 @@ build.bat
 build.bat clean
 ```
 
-To build/run the editor using `build.bat`:
-
-```bat
-:: Build and run vte
-build.bat
-```
-
-### Using Make (MSYS2/MinGW or WSL)
-
-```powershell
-# If you have make available (e.g. via MSYS2)
-mingw32-make   # or just 'make'
-
-# Run
-.\bin\vte.exe
-```
-
-### WSL (Ubuntu)
+## Build & run (MSYS2 / WSL / make)
 
 ```bash
-make
-./bin/main.exe
+# If you have make available
+mingw32-make   # or just 'make'
+
+# Run the built executable
+./bin/vte.exe
 ```
 
-## Troubleshooting
+## Usage
 
-- "gcc not found": install MSYS2/MinGW or WSL and ensure `gcc` is on your PATH. For MSYS2, add `C:\msys64\mingw64\bin` to your user PATH after installation.
-- Permission errors when running scripts: in PowerShell you may need to adjust execution policy (run PowerShell as admin and use `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`).
+- Start the editor with an optional filename: `./bin/vte.exe path\\to\\file.txt`
+- Normal mode: navigate with `h/j/k/l` or arrow keys. Press `i` to enter INSERT mode.
+- Insert mode: type to insert text, Backspace removes characters, Enter splits the line. Press `Esc` to return to Normal.
+- Command mode: press `:` then type commands like `w`, `w filename`, `q`, `h`/`help`.
 
-## Editor: vte
+## Notes
 
-vte is a minimal, curses-based, vim-like editor for Windows (PDCurses) or WSL (ncurses). Features:
+- This is intentionally small and synchronous — curses `getch()` is used in the main loop and the screen is redrawn each iteration.
+- Line editing is implemented in `src/modules/line_edit.c`; the editor copies the in-progress buffer when leaving INSERT mode so you can actually see what you're typing in real time.
+- If you want to help the project, feel free to do it.
 
-- Normal mode: navigation with h/j/k/l and arrow keys
-- Insert mode: press `i` to enter, Escape to return to Normal
-- Command mode: press `:` and enter commands like `:w`, `:w filename`, `:q`, `:wq`
-- Open/save a single file passed as an argument
+---
 
-Usage:
-
-```powershell
-# Open a file (or create it if missing)
-.\bin\vte.exe path\to\file.txt
-```
-
-If you want more features (undo, search, multi-file, syntax highlighting), say which ones to prioritize and I'll add them.
+If you maintain a fork or add features, consider updating this README with a short summary of the added capabilities.
