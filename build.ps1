@@ -1,7 +1,8 @@
 # PowerShell build script for Windows (uses gcc)
 Param(
     [string]$Target = "vte",
-    [switch]$Clean
+    [switch]$Clean,
+    [switch]$Wide
 )
 
 if ($PSBoundParameters.ContainsKey('Clean')) {
@@ -18,17 +19,23 @@ if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
 New-Item -ItemType Directory -Force -Path .\bin | Out-Null
 
 if ($Target -eq 'vte') {
-    $src = @(Join-Path -Path $PSScriptRoot -ChildPath "src\\editor_curses.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\config.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\modules\\line_edit.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\modules\\buffer.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\modules\\syntax.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\modules\\navigation.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\modules\\status.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\internal\\resize.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\internal\\mouse.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\internal\\wrap.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\internal\\utf8.c")
-    $src = @(Join-Path -Path $PSScriptRoot -ChildPath "src\\editor_curses.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\config.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\modules\\line_edit.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\modules\\buffer.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\modules\\syntax.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\modules\\navigation.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\modules\\status.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\internal\\resize.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\internal\\mouse.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\internal\\wrap.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\internal\\wrap_cache.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\internal\\utf8.c")
+    $src = @(Join-Path -Path $PSScriptRoot -ChildPath "src\\editor_curses.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\config.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\modules\\line_edit.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\modules\\buffer.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\modules\\syntax.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\modules\\navigation.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\modules\\status.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\internal\\resize.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\internal\\mouse.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\internal\\wrap.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\internal\\wrap_cache.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\internal\\utf8.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\\internal\\utf8_edit.c")
     $exe = Join-Path -Path $PSScriptRoot -ChildPath "bin\\vte.exe"
-    $linkopts = "-lpdcurses"
+    if ($Wide) {
+        $cflags = "-DPDC_WIDE"
+        $linkopts = "-lpdcursesw"
+    }
+    else {
+        $cflags = ""
+        $linkopts = "-lpdcurses"
+    }
 }
 else {
     Write-Error "Unknown target: $Target"
     exit 1
 }
 
-gcc -Wall -Wextra -O2 -o $exe $src $linkopts
+gcc -Wall -Wextra -O2 $cflags -o $exe $src $linkopts
 if ($LASTEXITCODE -ne 0) { Write-Error "Build failed"; exit $LASTEXITCODE }
 
 Write-Host "Built: $exe"

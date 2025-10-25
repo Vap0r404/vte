@@ -83,7 +83,7 @@ int buffer_open_file(const char *path)
     buf_count++;
     return cur_buf;
 }
-
+/* this hurts */
 int buffer_save_current(const char *path)
 {
     Buffer *b = buffer_current();

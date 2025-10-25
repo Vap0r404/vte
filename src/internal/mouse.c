@@ -53,11 +53,9 @@ int mouse_handle_click(size_t *cx, size_t *cy, size_t *rowoff,
     }
 
     const char *tline = (line_count > 0) ? lines[target_line] : "";
-    size_t len = tline ? strlen(tline) : 0;
     size_t base_col = segment * (size_t)text_width;
-    size_t new_cx = base_col + (size_t)text_x;
-    if (new_cx > len)
-        new_cx = len;
+    size_t target_col = base_col + (size_t)text_x;
+    size_t new_cx = wrap_byte_index_for_col(tline, (int)target_col);
     size_t new_cy = target_line;
 
     /* Bounds check */
