@@ -22,8 +22,13 @@ typedef enum
 #include "internal/resize.h"
 #include "internal/mouse.h"
 #include "internal/wrap.h"
+#include <locale.h>
 #include "internal/utf8.h"
 #include "internal/wrap_cache.h"
+#include "internal/utf8_edit.h"
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 static void show_help(void)
 {
@@ -263,13 +268,12 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
         int vis = wrap_cache_get(wc, ln, i);
         vcursor += vis;
     }
-    vcursor += ((int)cx - (int)coloff) / text_width;
+    const char *cur_line = (mode == MODE_INSERT && le_active && le && le->buf) ? le->buf : b->lines[cy];
+    int cx_cols = wrap_cols_for_prefix(cur_line, cx);
+    vcursor += cx_cols / text_width;
 
     int curs_y = vcursor - (int)rowoff;
-    int rel_x = (int)cx - (int)coloff;
-    if (rel_x < 0)
-        rel_x = 0;
-    int curs_x = (rel_x % text_width) + line_num_width;
+    int curs_x = (cx_cols % text_width) + line_num_width;
 
     /* Clamp cursor into visible area */
     if (curs_y >= 0 && curs_y < (int)max_display && curs_x >= 0 && curs_x < cols)
@@ -343,10 +347,23 @@ int main(int argc, char **argv)
     le.len = le.cap = le.pos = 0;
     int le_active = 0;
 
+    /* Enable locale so curses treats UTF-8 correctly */
+    setlocale(LC_ALL, "");
+#ifdef _WIN32
+    /* For wide-curses builds, input/output go through wide APIs, so no need to force code pages.
+       For narrow builds, forcing UTF-8 helps when decoding multibyte sequences. */
+#ifndef PDC_WIDE
+    SetConsoleCP(65001);
+    SetConsoleOutputCP(65001);
+#endif
+#endif
     initscr();
+    /* Prefer cbreak over raw: allows wide input to compose dead keys on Windows better */
     cbreak();
     noecho();
     keypad(stdscr, TRUE);
+    /* Ensure 8-bit input is not stripped; preserve high-bit bytes */
+    meta(stdscr, TRUE);
     curs_set(1);
     syntax_init();
     mouse_init();
@@ -660,11 +677,11 @@ int main(int argc, char **argv)
 
             if (ch == KEY_LEFT)
             {
-                le_move_left(&le);
+                le_move_left_cp(&le);
             }
             else if (ch == KEY_RIGHT)
             {
-                le_move_right(&le);
+                le_move_right_cp(&le);
             }
             else if (ch == KEY_UP)
             {
@@ -727,14 +744,18 @@ int main(int argc, char **argv)
             }
             else if (ch == KEY_DC)
             {
-                if (le_delete(&le))
+                if (le_delete_cp(&le))
+                {
                     buf->dirty = 1;
+                    wrap_cache_invalidate_line(&wc, cy);
+                }
             }
             else if (ch == KEY_BACKSPACE || ch == 127 || ch == 8)
             {
-                if (le_backspace(&le))
+                if (le_backspace_cp(&le))
                 {
                     buf->dirty = 1;
+                    wrap_cache_invalidate_line(&wc, cy);
                 }
                 else
                 {
@@ -805,40 +826,10 @@ int main(int argc, char **argv)
             }
             else if (ch >= 128 && ch <= 0x10FFFF)
             {
-                /* UTF-8 multi-byte character: encode and insert */
-                char utf8[5];
-                int len = 0;
-                if (ch < 0x80)
+                if (le_insert_codepoint(&le, ch))
                 {
-                    utf8[len++] = ch;
-                }
-                else if (ch < 0x800)
-                {
-                    utf8[len++] = 0xC0 | (ch >> 6);
-                    utf8[len++] = 0x80 | (ch & 0x3F);
-                }
-                else if (ch < 0x10000)
-                {
-                    utf8[len++] = 0xE0 | (ch >> 12);
-                    utf8[len++] = 0x80 | ((ch >> 6) & 0x3F);
-                    utf8[len++] = 0x80 | (ch & 0x3F);
-                }
-                else
-                {
-                    utf8[len++] = 0xF0 | (ch >> 18);
-                    utf8[len++] = 0x80 | ((ch >> 12) & 0x3F);
-                    utf8[len++] = 0x80 | ((ch >> 6) & 0x3F);
-                    utf8[len++] = 0x80 | (ch & 0x3F);
-                }
-                utf8[len] = '\0';
-                /* Insert each byte */
-                for (int i = 0; i < len; i++)
-                {
-                    if (le_insert_char(&le, (unsigned char)utf8[i]))
-                    {
-                        buf->dirty = 1;
-                        wrap_cache_invalidate_line(&wc, cy);
-                    }
+                    buf->dirty = 1;
+                    wrap_cache_invalidate_line(&wc, cy);
                 }
             }
 
@@ -852,8 +843,12 @@ int main(int argc, char **argv)
                 text_width = 1;
             int vcursor = 0;
             for (size_t i = 0; i < cy; ++i)
-                vcursor += wrap_calc_visual_lines(buf->lines[i], text_width);
-            vcursor += (int)cx / text_width;
+                vcursor += wrap_cache_get(&wc, buf->lines[i], i);
+            {
+                const char *cline = (le_active && le.buf) ? le.buf : buf->lines[cy];
+                int cx_cols = wrap_cols_for_prefix(cline, cx);
+                vcursor += cx_cols / text_width;
+            }
             if (vcursor < (int)rowoff)
                 rowoff = (size_t)vcursor;
             else if (vcursor >= (int)(rowoff + max_display))

@@ -77,6 +77,19 @@ mingw32-make   # or just 'make'
 - Line editing is implemented in `src/modules/line_edit.c`; the editor copies the in-progress buffer when leaving INSERT mode so you can actually see what you're typing in real time.
 - If you want to help the project, feel free to do it.
 
+## Unicode input on Windows
+
+- Rendering and files are UTF‑8. Keyboard input in the Windows console depends on your terminal and the curses library variant available.
+- On some setups (legacy `pdcurses` without wide‑char support), certain composed characters that use dead keys/AltGr (e.g. Polish ó, ą, ć, ń) may not be delivered to the app as a single Unicode codepoint. In those cases, insertion can fail or behave inconsistently.
+- Workarounds:
+  - Use a terminal that handles UTF‑8 and keyboard composition well (Windows Terminal, UTF‑8 locale/code page, a Unicode font like Consolas).
+  - Prefer WSL/Linux where `ncursesw` wide input is standard.
+  - Build with wide curses if available: `.
+build.ps1 -Wide` (requires `pdcursesw` installed and linkable as `-lpdcursesw`). This enables `get_wch()` wide‑character input.
+  - As a last resort, paste text or use OS input methods that produce precomposed characters directly.
+
+If some Unicode characters still don't work in your console environment, it's a known limitation of the minimal curses input path on Windows. PRs to improve the Windows input layer (e.g. using `ReadConsoleInputW`) are very welcome.
+
 ---
 
 If you maintain a fork or add features, consider updating this README with a short summary of the added capabilities.
