@@ -10,11 +10,13 @@ typedef enum
 {
     MODE_NORMAL,
     MODE_INSERT,
-    MODE_COMMAND
+    MODE_COMMAND,
+    MODE_SEARCH
 } Mode;
 
 #include "modules/buffer.h"
 #include "modules/syntax.h"
+#include "modules/navigation.h"
 
 static void show_help(void)
 {
@@ -31,6 +33,9 @@ static void show_help(void)
         "  Arrow keys - work as well",
         "  i          - enter INSERT mode",
         "  :          - enter COMMAND mode",
+        "  /          - pattern search mode",
+        "  n          - find next match (forward)",
+        "  N          - find previous match (backward)",
         "",
         "Buffers:",
         "  vte supports multiple buffers (up to 16 files open at once).",
@@ -44,6 +49,8 @@ static void show_help(void)
         "  :e filename - open/switch to file in a buffer",
         "  :bn        - switch to next buffer",
         "  :bp        - switch to previous buffer",
+        "  :123       - goto line 123 (any number)",
+        "  /pattern   - search forward for 'pattern'",
         "  :q         - quit (all buffers)",
         "  :wq        - save current buffer and quit",
         "  :h or :help- show this help",
@@ -143,17 +150,22 @@ static void get_command_line(int row, char *out, int maxlen)
     }
 }
 
-static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t coloff, Mode mode, const char *status, LineEdit *le, int le_active)
+static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t coloff, Mode mode, const char *status, LineEdit *le, int le_active, int line_num_width)
 {
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
     werase(stdscr);
     size_t max_display = rows - 2;
+
     for (size_t i = 0; i < max_display; ++i)
     {
         size_t lineno = rowoff + i;
         if (lineno >= b->count)
             break;
+
+        /* Draw line number */
+        mvprintw((int)i, 0, "%*zu ", line_num_width - 1, lineno + 1);
+
         const char *line = b->lines[lineno];
         /* If we're in INSERT mode and editing this line with a LineEdit, show the in-progress buffer */
         if (mode == MODE_INSERT && le_active && le && lineno == cy && le->buf)
@@ -162,13 +174,13 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
         if ((int)coloff < linelen)
         {
             const char *start = line + coloff;
-            mvprintw((int)i, 0, "%s", start);
+            mvprintw((int)i, line_num_width, "%s", start);
         }
     }
     move(rows - 2, 0);
     clrtoeol();
     char mstr[16];
-    strcpy(mstr, mode == MODE_INSERT ? "INSERT" : (mode == MODE_COMMAND ? "COMMAND" : "NORMAL"));
+    strcpy(mstr, mode == MODE_INSERT ? "INSERT" : (mode == MODE_COMMAND ? "COMMAND" : (mode == MODE_SEARCH ? "SEARCH" : "NORMAL")));
     /* show filename, buffer index and modified flag */
     const char *fname = b->path && b->path[0] ? b->path : "[No file]";
     char fbuf[256];
@@ -182,8 +194,10 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
     move(rows - 1, 0);
     clrtoeol();
     refresh();
+
+    /* Position cursor accounting for line number column */
     int curs_y = (int)cy - (int)rowoff;
-    int curs_x = (int)cx - (int)coloff;
+    int curs_x = (int)cx - (int)coloff + line_num_width;
     if (curs_y >= 0 && curs_y < (int)max_display && curs_x >= 0 && curs_x < cols)
         move(curs_y, curs_x);
 }
@@ -225,6 +239,10 @@ int main(int argc, char **argv)
     Mode mode = MODE_NORMAL;
     char status[256] = "";
 
+    /* navigation state */
+    NavState nav;
+    nav_init(&nav);
+
     /* line editor state used only in INSERT mode */
     LineEdit le;
     le.buf = NULL;
@@ -244,7 +262,11 @@ int main(int argc, char **argv)
         int rows, cols;
         getmaxyx(stdscr, rows, cols);
         int max_display = rows - 2;
-        draw_screen(buf, cx, cy, rowoff, coloff, mode, status, &le, le_active);
+
+        /* Calculate line number width */
+        nav.line_num_width = nav_calc_line_num_width(buf->count);
+
+        draw_screen(buf, cx, cy, rowoff, coloff, mode, status, &le, le_active, nav.line_num_width);
         ch = getch();
         if (mode == MODE_NORMAL)
         {
@@ -336,9 +358,74 @@ int main(int argc, char **argv)
                     }
                     break;
                 }
+                else if (cmd[0] >= '0' && cmd[0] <= '9')
+                {
+                    /* :number - goto line */
+                    size_t target_line = (size_t)atoi(cmd);
+                    if (nav_goto_line(target_line, &cy, &cx, &rowoff, max_display, buf->count))
+                        snprintf(status, sizeof(status), "Line %zu", target_line);
+                    else
+                        snprintf(status, sizeof(status), "Invalid line: %s", cmd);
+                }
                 else
                     snprintf(status, sizeof(status), "Unknown: %s", cmd);
                 mode = MODE_NORMAL;
+                continue;
+            }
+            if (ch == '/')
+            {
+                mode = MODE_SEARCH;
+                curs_set(1);
+                mvprintw(rows - 1, 0, "/");
+                clrtoeol();
+                char pattern[256];
+                move(rows - 1, 1);
+                get_command_line(rows - 1, pattern, 250);
+
+                if (pattern[0] != '\0')
+                {
+                    int result = nav_search_forward(pattern, buf, &cy, &cx, &rowoff, max_display, &nav);
+                    if (result == 1)
+                        snprintf(status, sizeof(status), "/%s", pattern);
+                    else if (result == 2)
+                        snprintf(status, sizeof(status), "/%s (wrapped)", pattern);
+                    else
+                        snprintf(status, sizeof(status), "Pattern not found: %s", pattern);
+                }
+
+                mode = MODE_NORMAL;
+                continue;
+            }
+            if (ch == 'n')
+            {
+                if (nav.last_search[0] != '\0')
+                {
+                    int result = nav_search_next(buf, &cy, &cx, &rowoff, max_display, &nav);
+                    if (result == 1)
+                        snprintf(status, sizeof(status), "/%s", nav.last_search);
+                    else if (result == 2)
+                        snprintf(status, sizeof(status), "/%s (wrapped)", nav.last_search);
+                    else
+                        snprintf(status, sizeof(status), "Pattern not found: %s", nav.last_search);
+                }
+                else
+                    snprintf(status, sizeof(status), "No previous search");
+                continue;
+            }
+            if (ch == 'N')
+            {
+                if (nav.last_search[0] != '\0')
+                {
+                    int result = nav_search_prev(buf, &cy, &cx, &rowoff, max_display, &nav);
+                    if (result == 1)
+                        snprintf(status, sizeof(status), "?%s", nav.last_search);
+                    else if (result == 2)
+                        snprintf(status, sizeof(status), "?%s (wrapped)", nav.last_search);
+                    else
+                        snprintf(status, sizeof(status), "Pattern not found: %s", nav.last_search);
+                }
+                else
+                    snprintf(status, sizeof(status), "No previous search");
                 continue;
             }
             if (ch == 'i')

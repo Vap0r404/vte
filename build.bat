@@ -18,7 +18,7 @@ set TARGET=%1
 if "%TARGET%"=="" set TARGET=vte
 
 if /I "%TARGET%"=="vte" (
-    gcc -Wall -Wextra -O2 -o "bin\vte.exe" "src\editor_curses.c" "src\modules\line_edit.c" "src\modules\buffer.c" "src\modules\syntax.c" -lpdcurses
+    gcc -Wall -Wextra -O2 -o "bin\vte.exe" "src\editor_curses.c" "src\modules\line_edit.c" "src\modules\buffer.c" "src\modules\syntax.c" "src\modules\navigation.c" -lpdcurses
     if errorlevel 1 (
         echo Build failed
         exit /b 1
