@@ -243,7 +243,6 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
 
     move(rows - 1, 0);
     clrtoeol();
-    refresh();
 
     /* Position cursor accounting for wrapping and line number column */
     int vcursor = 0;
@@ -264,6 +263,10 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
     /* Clamp cursor into visible area */
     if (curs_y >= 0 && curs_y < (int)max_display && curs_x >= 0 && curs_x < cols)
         move(curs_y, curs_x);
+
+    /* Batch updates for smoother rendering and apply after final cursor move */
+    wnoutrefresh(stdscr);
+    doupdate();
 }
 
 int main(int argc, char **argv)
