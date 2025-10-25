@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O2
-CURSES_SRC = src/editor_curses.c src/modules/line_edit.c
+CURSES_SRC = src/editor_curses.c src/modules/line_edit.c src/modules/buffer.c src/modules/syntax.c src/modules/navigation.c
 VTE = bin\vte.exe
 
 all: vte
