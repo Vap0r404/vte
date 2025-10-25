@@ -18,10 +18,11 @@ if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
 New-Item -ItemType Directory -Force -Path .\bin | Out-Null
 
 if ($Target -eq 'vte') {
-    $src = Join-Path -Path $PSScriptRoot -ChildPath "src\editor_curses.c"
+    $src = @(Join-Path -Path $PSScriptRoot -ChildPath "src\editor_curses.c"), (Join-Path -Path $PSScriptRoot -ChildPath "src\modules\line_edit.c")
     $exe = Join-Path -Path $PSScriptRoot -ChildPath "bin\vte.exe"
     $linkopts = "-lpdcurses"
-} else {
+}
+else {
     Write-Error "Unknown target: $Target"
     exit 1
 }
