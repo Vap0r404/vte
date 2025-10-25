@@ -166,7 +166,8 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
 {
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
-    werase(stdscr);
+    /* Hide cursor during redraw to avoid flicker */
+    curs_set(0);
     size_t max_display = rows - 2;
 
     /* Available width for text excluding line numbers */
@@ -223,6 +224,15 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
 
         screen_row += (size_t)used;
     }
+
+    /* Clear remaining rows below the last drawn content without erasing the whole screen */
+    for (; screen_row < max_display; ++screen_row)
+    {
+        /* Blank gutter and text area for each leftover row */
+        mvprintw((int)screen_row, 0, "%*s ", line_num_width - 1, "");
+        /* Print padded empty segment to ensure text area is cleared */
+        mvprintw((int)screen_row, line_num_width, "%-*s", cols - line_num_width, "");
+    }
     move(rows - 2, 0);
     clrtoeol();
 
@@ -267,6 +277,9 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
     /* Batch updates for smoother rendering and apply after final cursor move */
     wnoutrefresh(stdscr);
     doupdate();
+
+    /* Restore cursor visibility after redraw */
+    curs_set(1);
 }
 
 int main(int argc, char **argv)
