@@ -1,0 +1,20 @@
+# vte editor configuration file
+# Place in current directory or home directory
+
+# Tab width (1-16)
+tab_width=4
+
+# Auto-indent new lines
+auto_indent=on
+
+# Show line numbers
+line_numbers=on
+
+# Convert tabs to spaces
+expand_tabs=on
+
+# Minimum lines to keep above/below cursor (0-20)
+scroll_offset=3
+
+# Enable syntax highlighting
+syntax=on

@@ -3,6 +3,7 @@
 #include <string.h>
 #include <curses.h>
 #include "modules/line_edit.h"
+#include "config.h"
 
 #define MAX_LINES 65536
 #define LINE_CAP 8192
@@ -51,6 +52,8 @@ static void show_help(void)
         "  :bp        - switch to previous buffer",
         "  :123       - goto line 123 (any number)",
         "  /pattern   - search forward for 'pattern'",
+        "  :set       - show current settings",
+        "  :set name=value - change a setting",
         "  :q         - quit (all buffers)",
         "  :wq        - save current buffer and quit",
         "  :h or :help- show this help",
@@ -239,6 +242,16 @@ int main(int argc, char **argv)
     Mode mode = MODE_NORMAL;
     char status[256] = "";
 
+    /* config state */
+    EditorConfig config;
+    config_init(&config);
+    /* Try to load .vterc from current directory, generate if not found */
+    if (config_load(&config, ".vterc") != 0)
+    {
+        config_generate(".vterc");
+        config_load(&config, ".vterc");
+    }
+
     /* navigation state */
     NavState nav;
     nav_init(&nav);
@@ -366,6 +379,16 @@ int main(int argc, char **argv)
                         snprintf(status, sizeof(status), "Line %zu", target_line);
                     else
                         snprintf(status, sizeof(status), "Invalid line: %s", cmd);
+                }
+                else if (strcmp(cmd, "set") == 0)
+                {
+                    /* :set - show current settings */
+                    config_show(&config, status, sizeof(status));
+                }
+                else if (strncmp(cmd, "set ", 4) == 0)
+                {
+                    /* :set name=value */
+                    config_set(&config, cmd + 4, status, sizeof(status));
                 }
                 else
                     snprintf(status, sizeof(status), "Unknown: %s", cmd);
