@@ -53,20 +53,50 @@ static void show_help(void)
         "  Cmd: build.bat",
         "  Make: mingw32-make or make (if available)",
         "",
-        "Press any key to return...",
+        "Navigation: j/k or arrow keys to scroll, q or any other key to return",
         NULL};
+
+    int total_lines = 0;
+    for (const char **p = help_lines; *p; ++p)
+        total_lines++;
+
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
-    (void)rows;
-    (void)cols; /* suppress unused-var warnings: we only print static help */
-    clear();
-    int r = 0;
-    for (const char **p = help_lines; *p; ++p)
+    (void)cols; /* suppress unused warning */
+    int offset = 0;
+    int max_offset = total_lines - rows;
+    if (max_offset < 0)
+        max_offset = 0;
+
+    while (1)
     {
-        mvprintw(r++, 0, "%s", *p);
+        clear();
+        for (int r = 0; r < rows && offset + r < total_lines; ++r)
+        {
+            mvprintw(r, 0, "%s", help_lines[offset + r]);
+        }
+        refresh();
+
+        int ch = getch();
+        if (ch == 'j' || ch == KEY_DOWN)
+        {
+            if (offset < max_offset)
+                offset++;
+        }
+        else if (ch == 'k' || ch == KEY_UP)
+        {
+            if (offset > 0)
+                offset--;
+        }
+        else if (ch == 'q' || ch == 27)
+        {
+            break;
+        }
+        else
+        {
+            break; /* any other key exits */
+        }
     }
-    refresh();
-    getch();
     clear();
 }
 
