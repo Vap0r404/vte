@@ -505,6 +505,68 @@ int main(int argc, char **argv)
             {
                 le_move_right(&le);
             }
+            else if (ch == KEY_UP)
+            {
+                if (cy > 0)
+                {
+                    /* Save current line edit */
+                    char *tmp = le_take_string(&le);
+                    if (tmp)
+                    {
+                        free(buf->lines[cy]);
+                        buf->lines[cy] = tmp;
+                    }
+                    cy--;
+                    /* Re-init with new line */
+                    le_free(&le);
+                    le_init(&le, buf->lines[cy]);
+                    /* Try to preserve column position */
+                    if (cx > le.len)
+                        le.pos = le.len;
+                    else
+                        le.pos = cx;
+                    cx = le.pos;
+                }
+            }
+            else if (ch == KEY_DOWN)
+            {
+                if (cy < buf->count - 1)
+                {
+                    /* Save current line edit */
+                    char *tmp = le_take_string(&le);
+                    if (tmp)
+                    {
+                        free(buf->lines[cy]);
+                        buf->lines[cy] = tmp;
+                    }
+                    cy++;
+                    /* Re-init with new line */
+                    le_free(&le);
+                    le_init(&le, buf->lines[cy]);
+                    /* Try to preserve column position */
+                    if (cx > le.len)
+                        le.pos = le.len;
+                    else
+                        le.pos = cx;
+                    cx = le.pos;
+                    /* Adjust scroll if needed */
+                    if (cy >= rowoff + (size_t)max_display)
+                        rowoff = cy - max_display + 1;
+                }
+            }
+            else if (ch == KEY_HOME)
+            {
+                le_move_home(&le);
+            }
+            else if (ch == KEY_END)
+            {
+                le_move_end(&le);
+            }
+            else if (ch == KEY_DC)
+            {
+                if (le_delete(&le))
+                    buf->dirty = 1;
+            }
             else if (ch == KEY_BACKSPACE || ch == 127 || ch == 8)
             {
                 if (le_backspace(&le))
