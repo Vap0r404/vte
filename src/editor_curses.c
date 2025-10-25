@@ -34,6 +34,10 @@ static void show_help(void)
         "  INSERT - type text (press Esc to return to NORMAL)",
         "  COMMAND - press : to enter, supports :w, :w filename, :q, :wq, :h, :help",
         "",
+        "Mouse:",
+        "  Single-click to move the cursor (works in NORMAL and INSERT modes)",
+        "  Click mapping respects visual wrapping (long lines wrap on screen)",
+        "",
         "Normal mode keys:",
         "  h/j/k/l    - left/down/up/right",
         "  Arrow keys - work as well",
@@ -45,7 +49,7 @@ static void show_help(void)
         "",
         "Buffers:",
         "  vte supports multiple buffers (up to 16 files open at once).",
-        "  The status line shows buffer index [N/Total] and filename.",
+    "  The status line shows buffer index [N/Total], filename, and line:col.",
         "  Each buffer tracks its own content, path, and modified state.",
         "  Use :e to open files and :bn/:bp to switch between buffers.",
         "",
@@ -165,25 +169,59 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
     werase(stdscr);
     size_t max_display = rows - 2;
 
-    for (size_t i = 0; i < max_display; ++i)
+    /* Available width for text excluding line numbers */
+    int text_width = cols - line_num_width;
+    if (text_width < 1)
+        text_width = 1;
+
+    /* Determine which buffer line starts at the top, based on visual row offset */
+    size_t start_line = 0;
+    size_t skip_rows_in_first = 0;
+    size_t remain = rowoff;
+    for (size_t i = 0; i < b->count; ++i)
     {
-        size_t lineno = rowoff + i;
-        if (lineno >= b->count)
+        const char *ln = b->lines[i];
+        int vis = wrap_calc_visual_lines(ln, text_width);
+        if ((size_t)vis > remain)
+        {
+            start_line = i;
+            skip_rows_in_first = remain;
             break;
+        }
+        remain -= (size_t)vis;
+        if (i + 1 == b->count)
+        {
+            start_line = i;
+            skip_rows_in_first = 0;
+        }
+    }
 
-        /* Draw line number */
-        mvprintw((int)i, 0, "%*zu ", line_num_width - 1, lineno + 1);
-
+    /* Draw buffer lines with wrapping starting from the computed offset */
+    size_t screen_row = 0;
+    for (size_t lineno = start_line; lineno < b->count && screen_row < max_display; ++lineno)
+    {
         const char *line = b->lines[lineno];
-        /* If we're in INSERT mode and editing this line with a LineEdit, show the in-progress buffer */
         if (mode == MODE_INSERT && le_active && le && lineno == cy && le->buf)
             line = le->buf;
-        int linelen = (int)strlen(line);
-        if ((int)coloff < linelen)
+
+        /* First visual row: draw line number */
+        mvprintw((int)screen_row, 0, "%*zu ", line_num_width - 1, lineno + 1);
+
+        int max_rows_for_line = (int)(max_display - screen_row);
+        size_t line_start_coloff = coloff;
+        if (lineno == start_line && skip_rows_in_first > 0)
+            line_start_coloff += skip_rows_in_first * (size_t)text_width;
+
+        int used = wrap_draw_line(line, (int)screen_row, line_num_width, text_width, line_start_coloff, max_rows_for_line);
+        if (used < 1)
+            used = 1;
+
+        for (int k = 1; k < used && screen_row + (size_t)k < max_display; ++k)
         {
-            const char *start = line + coloff;
-            mvprintw((int)i, line_num_width, "%s", start);
+            mvprintw((int)(screen_row + k), 0, "%*s ", line_num_width - 1, "");
         }
+
+        screen_row += (size_t)used;
     }
     move(rows - 2, 0);
     clrtoeol();
@@ -207,9 +245,23 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
     clrtoeol();
     refresh();
 
-    /* Position cursor accounting for line number column */
-    int curs_y = (int)cy - (int)rowoff;
-    int curs_x = (int)cx - (int)coloff + line_num_width;
+    /* Position cursor accounting for wrapping and line number column */
+    int vcursor = 0;
+    for (size_t i = 0; i < cy; ++i)
+    {
+        const char *ln = b->lines[i];
+        int vis = wrap_calc_visual_lines(ln, text_width);
+        vcursor += vis;
+    }
+    vcursor += ((int)cx - (int)coloff) / text_width;
+
+    int curs_y = vcursor - (int)rowoff;
+    int rel_x = (int)cx - (int)coloff;
+    if (rel_x < 0)
+        rel_x = 0;
+    int curs_x = (rel_x % text_width) + line_num_width;
+
+    /* Clamp cursor into visible area */
     if (curs_y >= 0 && curs_y < (int)max_display && curs_x >= 0 && curs_x < cols)
         move(curs_y, curs_x);
 }
@@ -300,14 +352,33 @@ int main(int argc, char **argv)
 
         if (ch == KEY_MOUSE)
         {
-            if (mouse_handle_click(&cx, &cy, &rowoff, &coloff, buf->count, nav.line_num_width, max_display))
+            int text_width = cols - nav.line_num_width;
+            if (text_width < 1)
+                text_width = 1;
+
+            /* In INSERT mode, commit current line edits before moving the cursor/line. */
+            if (mode == MODE_INSERT && le_active)
+            {
+                char *committed = le_take_string(&le);
+                if (committed)
+                {
+                    free(buf->lines[cy]);
+                    buf->lines[cy] = committed;
+                    buf->dirty = 1;
+                }
+                le_free(&le);
+                le_active = 0;
+            }
+
+            if (mouse_handle_click(&cx, &cy, &rowoff, buf->lines, buf->count, nav.line_num_width, max_display, text_width))
             {
                 snprintf(status, sizeof(status), "Click: line %zu, col %zu", cy + 1, cx + 1);
-                /* If in INSERT mode, reinitialize line editor at new position */
-                if (mode == MODE_INSERT && le_active)
+                /* If in INSERT mode, (re)initialize line editor at new position */
+                if (mode == MODE_INSERT)
                 {
                     le_init(&le, buf->lines[cy]);
                     le.pos = (cx < le.len) ? cx : le.len;
+                    le_active = 1;
                 }
             }
             continue;
@@ -723,16 +794,21 @@ int main(int argc, char **argv)
             }
 
             cx = le.pos;
-            if ((int)cx - (int)coloff >= cols)
-                coloff = cx - cols + 1;
-            if (cy < rowoff)
-            {
-                rowoff = cy;
-            }
-            if (cy >= rowoff + (size_t)max_display)
-            {
-                rowoff = cy - max_display + 1;
-            }
+            /* Wrapping enabled: disable horizontal scrolling */
+            coloff = 0;
+
+            /* Ensure cursor is visible by adjusting visual row offset */
+            int text_width = cols - nav.line_num_width;
+            if (text_width < 1)
+                text_width = 1;
+            int vcursor = 0;
+            for (size_t i = 0; i < cy; ++i)
+                vcursor += wrap_calc_visual_lines(buf->lines[i], text_width);
+            vcursor += (int)cx / text_width;
+            if (vcursor < (int)rowoff)
+                rowoff = (size_t)vcursor;
+            else if (vcursor >= (int)(rowoff + max_display))
+                rowoff = (size_t)(vcursor - max_display + 1);
         }
     }
 
