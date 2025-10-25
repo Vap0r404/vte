@@ -11,8 +11,10 @@ It provides a minimal, vim-inspired editing experience: Normal/Insert/Command mo
 
 ## Contents
 
-- `src/editor_curses.c` — The core
-- `src/modules/` - Modules folder
+- `src/editor_curses.c` — The core editor
+- `src/config.c` / `src/config.h` — Configuration system (:set commands, .vterc file)
+- `src/modules/` — Modular components (line editing, buffers, syntax, navigation)
+- `src/internal/` — Internal utilities (resize handling)
 - `Makefile` — GNU Make rules (also usable from MSYS2/MinGW)
 - `build.ps1` — PowerShell build script (native Windows)
 - `build.bat` — Batch build script (cmd.exe)
@@ -23,7 +25,7 @@ It provides a minimal, vim-inspired editing experience: Normal/Insert/Command mo
   - Install MSYS2 (https://www.msys2.org/) and then install the `mingw-w64` toolchain
   - Or enable WSL and install `build-essential` in your Linux distro
   - PDCurses and the library
- 
+
 ## This repository contains the editor source and convenient build scripts for Windows and MSYS2/MinGW/WSL.
 
 # Quick start
@@ -67,7 +69,7 @@ mingw32-make   # or just 'make'
 - Start the editor with an optional filename: `./bin/vte.exe path\\to\\file.txt`
 - Normal mode: navigate with `h/j/k/l` or arrow keys. Press `i` to enter INSERT mode.
 - Insert mode: type to insert text, Backspace removes characters, Enter splits the line. Press `Esc` to return to Normal.
-- Command mode: press `:` then type commands like `w`, `w filename`, `q`, `h`/`help`.
+- Command mode: press `:` then type commands like `w`, `w filename`, `q`, `h`/`help` for more info.
 
 ## Notes
 

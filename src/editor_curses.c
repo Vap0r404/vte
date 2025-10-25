@@ -18,6 +18,7 @@ typedef enum
 #include "modules/buffer.h"
 #include "modules/syntax.h"
 #include "modules/navigation.h"
+#include "internal/resize.h"
 
 static void show_help(void)
 {
@@ -281,6 +282,13 @@ int main(int argc, char **argv)
 
         draw_screen(buf, cx, cy, rowoff, coloff, mode, status, &le, le_active, nav.line_num_width);
         ch = getch();
+
+        if (ch == KEY_RESIZE)
+        {
+            handle_resize();
+            continue;
+        }
+
         if (mode == MODE_NORMAL)
         {
             if (ch == ':')
