@@ -259,7 +259,7 @@ int main(int argc, char **argv)
         int rows, cols;
         getmaxyx(stdscr, rows, cols);
         int max_display = rows - 2;
-    draw_screen(&buf, cx, cy, rowoff, coloff, mode, status, &le, le_active, path, dirty);
+        draw_screen(&buf, cx, cy, rowoff, coloff, mode, status, &le, le_active, path, dirty);
         ch = getch();
         if (mode == MODE_NORMAL)
         {
@@ -287,20 +287,24 @@ int main(int argc, char **argv)
                         snprintf(_fname_s, sizeof(_fname_s), "%.*s", (int)(sizeof(_fname_s) - 1), fname);
                         _fname_s[sizeof(_fname_s) - 1] = '\0';
                     }
-                    if (buffer_save(&buf, fname) == 0) {
+                    if (buffer_save(&buf, fname) == 0)
+                    {
                         snprintf(status, sizeof(status), "Saved to %s", _fname_s);
                         dirty = 0;
-                    } else
+                    }
+                    else
                         snprintf(status, sizeof(status), "Save failed");
                 }
                 else if (strcmp(cmd, "w") == 0)
                 {
                     if (path)
                     {
-                        if (buffer_save(&buf, path) == 0) {
+                        if (buffer_save(&buf, path) == 0)
+                        {
                             snprintf(status, sizeof(status), "Saved");
                             dirty = 0;
-                        } else
+                        }
+                        else
                             snprintf(status, sizeof(status), "Save failed");
                     }
                     else
@@ -310,8 +314,10 @@ int main(int argc, char **argv)
                     break;
                 else if (strcmp(cmd, "wq") == 0)
                 {
-                    if (path) {
-                        if (buffer_save(&buf, path) == 0) dirty = 0;
+                    if (path)
+                    {
+                        if (buffer_save(&buf, path) == 0)
+                            dirty = 0;
                     }
                     break;
                 }
@@ -398,9 +404,11 @@ int main(int argc, char **argv)
             }
             else if (ch == KEY_BACKSPACE || ch == 127 || ch == 8)
             {
-                if (le_backspace(&le)) {
+                if (le_backspace(&le))
+                {
                     dirty = 1;
-                } else
+                }
+                else
                 {
                     /* at column 0: join with previous line if possible */
                     if (le.pos == 0 && cy > 0)
@@ -455,7 +463,8 @@ int main(int argc, char **argv)
             }
             else if (ch >= 32 && ch < 127)
             {
-                if (le_insert_char(&le, ch)) dirty = 1;
+                if (le_insert_char(&le, ch))
+                    dirty = 1;
             }
 
             cx = le.pos;
