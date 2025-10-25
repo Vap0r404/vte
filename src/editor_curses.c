@@ -18,7 +18,14 @@ typedef struct
 {
     char *lines[MAX_LINES];
     size_t count;
+    char *path; /* optional filename for this buffer */
+    int dirty;  /* modified since last save */
 } Buffer;
+
+#define MAX_BUFFERS 16
+static Buffer buffers[MAX_BUFFERS];
+static size_t buf_count = 0;
+static int cur_buf = 0;
 
 static void buffer_init(Buffer *b) { b->count = 0; }
 static void buffer_free(Buffer *b)
@@ -114,31 +121,15 @@ static void get_command_line(int row, char *out, int maxlen)
 {
     int pos = 0, len = 0;
     out[0] = '\0';
-    int cols;
-    int rows;
+    int rows, cols;
     getmaxyx(stdscr, rows, cols);
     (void)rows;
-    (void)cols; /* cols/rows not required here but keep for future */
+    (void)cols;
     while (1)
     {
         int c = getch();
         if (c == '\r' || c == '\n')
             break;
-        if (c == 27)
-        {
-            out[0] = '\0';
-            break;
-        }
-        if (c == KEY_LEFT)
-        {
-            if (pos > 0)
-                pos--;
-        }
-        else if (c == KEY_RIGHT)
-        {
-            if (pos < len)
-                pos++;
-        }
         else if (c == KEY_BACKSPACE || c == 127 || c == 8)
         {
             if (pos > 0)
@@ -214,32 +205,39 @@ static void draw_screen(Buffer *b, size_t cx, size_t cy, size_t rowoff, size_t c
 
 int main(int argc, char **argv)
 {
-    Buffer buf;
-    buffer_init(&buf);
-    const char *path = NULL;
+    /* initialize buffer pool and set current buffer */
+    for (int i = 0; i < MAX_BUFFERS; ++i) { buffer_init(&buffers[i]); buffers[i].path = NULL; buffers[i].dirty = 0; }
+    cur_buf = 0; buf_count = 1;
+    Buffer *buf = &buffers[cur_buf];
     if (argc >= 2)
-        path = argv[1];
-    if (path)
     {
-        if (buffer_load(&buf, path) != 0)
+        if (buffer_load(buf, argv[1]) != 0)
         {
-            fprintf(stderr, "Could not open '%s' - starting empty\n", path);
-            buf.lines[0] = malloc(1);
-            buf.lines[0][0] = '\0';
-            buf.count = 1;
+            fprintf(stderr, "Could not open '%s' - starting empty\n", argv[1]);
+            buf->lines[0] = malloc(1);
+            buf->lines[0][0] = '\0';
+            buf->count = 1;
+            if (buf->path) { free(buf->path); buf->path = NULL; }
+            buf->dirty = 0;
+        }
+        else
+        {
+            buf->path = strdup(argv[1]);
+            buf->dirty = 0;
         }
     }
     else
     {
-        buf.lines[0] = malloc(1);
-        buf.lines[0][0] = '\0';
-        buf.count = 1;
+        buf->lines[0] = malloc(1);
+        buf->lines[0][0] = '\0';
+        buf->count = 1;
+        buf->path = NULL;
+        buf->dirty = 0;
     }
 
     size_t cx = 0, cy = 0, rowoff = 0, coloff = 0;
     Mode mode = MODE_NORMAL;
     char status[256] = "";
-    int dirty = 0; /* 1 when buffer modified since last save */
 
     /* line editor state used only in INSERT mode */
     LineEdit le;
@@ -257,9 +255,9 @@ int main(int argc, char **argv)
     while (1)
     {
         int rows, cols;
-        getmaxyx(stdscr, rows, cols);
-        int max_display = rows - 2;
-        draw_screen(&buf, cx, cy, rowoff, coloff, mode, status, &le, le_active, path, dirty);
+    getmaxyx(stdscr, rows, cols);
+    int max_display = rows - 2;
+    draw_screen(buf, cx, cy, rowoff, coloff, mode, status, &le, le_active, buf->path, buf->dirty);
         ch = getch();
         if (mode == MODE_NORMAL)
         {
@@ -276,7 +274,7 @@ int main(int argc, char **argv)
                 {
                     show_help();
                 }
-                else if (strncmp(cmd, "w ", 2) == 0)
+                if (strncmp(cmd, "w ", 2) == 0)
                 {
                     char *fname = cmd + 2;
                     /* clamp filename length when assembling status text to avoid snprintf truncation warning */
@@ -287,22 +285,25 @@ int main(int argc, char **argv)
                         snprintf(_fname_s, sizeof(_fname_s), "%.*s", (int)(sizeof(_fname_s) - 1), fname);
                         _fname_s[sizeof(_fname_s) - 1] = '\0';
                     }
-                    if (buffer_save(&buf, fname) == 0)
+                    if (buffer_save(buf, fname) == 0)
                     {
+                        /* update buffer path to the saved filename */
+                        if (buf->path) free(buf->path);
+                        buf->path = strdup(fname);
                         snprintf(status, sizeof(status), "Saved to %s", _fname_s);
-                        dirty = 0;
+                        buf->dirty = 0;
                     }
                     else
                         snprintf(status, sizeof(status), "Save failed");
                 }
                 else if (strcmp(cmd, "w") == 0)
                 {
-                    if (path)
+                    if (buf->path)
                     {
-                        if (buffer_save(&buf, path) == 0)
+                        if (buffer_save(buf, buf->path) == 0)
                         {
                             snprintf(status, sizeof(status), "Saved");
-                            dirty = 0;
+                            buf->dirty = 0;
                         }
                         else
                             snprintf(status, sizeof(status), "Save failed");
@@ -314,10 +315,10 @@ int main(int argc, char **argv)
                     break;
                 else if (strcmp(cmd, "wq") == 0)
                 {
-                    if (path)
+                    if (buf->path)
                     {
-                        if (buffer_save(&buf, path) == 0)
-                            dirty = 0;
+                        if (buffer_save(buf, buf->path) == 0)
+                            buf->dirty = 0;
                     }
                     break;
                 }
@@ -332,23 +333,23 @@ int main(int argc, char **argv)
                 strcpy(status, "");
                 continue;
             }
-            if (ch == KEY_LEFT || ch == 'h')
+                if (ch == KEY_LEFT || ch == 'h')
             {
                 if (cx > 0)
                     cx--;
             }
-            else if (ch == KEY_RIGHT || ch == 'l')
-            {
-                if (cx < strlen(buf.lines[cy]))
-                    cx++;
-            }
+        else if (ch == KEY_RIGHT || ch == 'l')
+        {
+        if (cx < strlen(buf->lines[cy]))
+            cx++;
+        }
             else if (ch == KEY_UP || ch == 'k')
             {
                 if (cy > 0)
                 {
                     cy--;
-                    if (cx > strlen(buf.lines[cy]))
-                        cx = strlen(buf.lines[cy]);
+                    if (cx > strlen(buf->lines[cy]))
+                        cx = strlen(buf->lines[cy]);
                     if (cy < rowoff)
                     {
                         rowoff = cy;
@@ -357,11 +358,11 @@ int main(int argc, char **argv)
             }
             else if (ch == KEY_DOWN || ch == 'j')
             {
-                if (cy + 1 < buf.count)
+                if (cy + 1 < buf->count)
                 {
                     cy++;
-                    if (cx > strlen(buf.lines[cy]))
-                        cx = strlen(buf.lines[cy]);
+                    if (cx > strlen(buf->lines[cy]))
+                        cx = strlen(buf->lines[cy]);
                     if (cy >= rowoff + (size_t)max_display)
                     {
                         rowoff = cy - max_display + 1;
@@ -374,7 +375,7 @@ int main(int argc, char **argv)
             /* initialize line editor for the current line when first entering INSERT */
             if (!le_active)
             {
-                le_init(&le, buf.lines[cy]);
+                le_init(&le, buf->lines[cy]);
                 le.pos = cx;
                 le_active = 1;
             }
@@ -385,8 +386,9 @@ int main(int argc, char **argv)
                 char *newline = le_take_string(&le);
                 if (newline)
                 {
-                    free(buf.lines[cy]);
-                    buf.lines[cy] = newline;
+                    free(buf->lines[cy]);
+                    buf->lines[cy] = newline;
+                    buf->dirty = 1;
                 }
                 le_free(&le);
                 le_active = 0;
@@ -406,29 +408,29 @@ int main(int argc, char **argv)
             {
                 if (le_backspace(&le))
                 {
-                    dirty = 1;
+                    buf->dirty = 1;
                 }
                 else
                 {
                     /* at column 0: join with previous line if possible */
                     if (le.pos == 0 && cy > 0)
                     {
-                        size_t prevlen = strlen(buf.lines[cy - 1]);
-                        char *joined = realloc(buf.lines[cy - 1], prevlen + le.len + 1);
+                        size_t prevlen = strlen(buf->lines[cy - 1]);
+                        char *joined = realloc(buf->lines[cy - 1], prevlen + le.len + 1);
                         if (joined)
                         {
                             memcpy(joined + prevlen, le.buf, le.len + 1);
-                            buf.lines[cy - 1] = joined;
-                            free(buf.lines[cy]);
-                            for (size_t i = cy; i < buf.count - 1; ++i)
-                                buf.lines[i] = buf.lines[i + 1];
-                            buf.count--;
+                            buf->lines[cy - 1] = joined;
+                            free(buf->lines[cy]);
+                            for (size_t i = cy; i < buf->count - 1; ++i)
+                                buf->lines[i] = buf->lines[i + 1];
+                            buf->count--;
                             cy--;
                             /* reinit line editor to the end of the joined line */
                             le_free(&le);
-                            le_init(&le, buf.lines[cy]);
+                            le_init(&le, buf->lines[cy]);
                             le.pos = prevlen;
-                            dirty = 1;
+                            buf->dirty = 1;
                         }
                     }
                 }
@@ -440,22 +442,22 @@ int main(int argc, char **argv)
                 char *left = le_take_string(&le);
                 if (left)
                 {
-                    free(buf.lines[cy]);
-                    buf.lines[cy] = left;
+                    free(buf->lines[cy]);
+                    buf->lines[cy] = left;
                 }
                 if (right)
                 {
-                    if (buf.count + 1 < MAX_LINES)
+                    if (buf->count + 1 < MAX_LINES)
                     {
-                        for (size_t i = buf.count; i > cy + 1; --i)
-                            buf.lines[i] = buf.lines[i - 1];
-                        buf.lines[cy + 1] = right;
-                        buf.count++;
+                        for (size_t i = buf->count; i > cy + 1; --i)
+                            buf->lines[i] = buf->lines[i - 1];
+                        buf->lines[cy + 1] = right;
+                        buf->count++;
                         cy++;
                         le_free(&le);
-                        le_init(&le, buf.lines[cy]);
+                        le_init(&le, buf->lines[cy]);
                         le.pos = 0;
-                        dirty = 1;
+                        buf->dirty = 1;
                     }
                     else
                         free(right);
@@ -464,7 +466,7 @@ int main(int argc, char **argv)
             else if (ch >= 32 && ch < 127)
             {
                 if (le_insert_char(&le, ch))
-                    dirty = 1;
+                    buf->dirty = 1;
             }
 
             cx = le.pos;
@@ -482,6 +484,6 @@ int main(int argc, char **argv)
     }
 
     endwin();
-    buffer_free(&buf);
+    buffer_free(buf);
     return 0;
 }
