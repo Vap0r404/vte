@@ -37,7 +37,9 @@ static int ensure_capacity(LineEdit *le, size_t needed)
 {
     if (needed <= le->cap)
         return 1;
-    size_t newcap = max_size(le->cap * 2, needed);
+    size_t newcap = le->cap > 0 ? le->cap * 2 : 16;
+    if (newcap < needed)
+        newcap = needed;
     char *n = (char *)realloc(le->buf, newcap);
     if (!n)
         return 0;

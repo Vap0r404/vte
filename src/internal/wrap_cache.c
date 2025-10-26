@@ -8,8 +8,15 @@ void wrap_cache_init(WrapCache *c, size_t count)
     c->cap = count ? count : 1;
     c->count = count;
     c->counts = (int *)malloc(c->cap * sizeof(int));
-    for (size_t i = 0; i < c->cap; ++i)
-        c->counts[i] = -1;
+    if (c->counts)
+    {
+        for (size_t i = 0; i < c->cap; ++i)
+            c->counts[i] = -1;
+    }
+    else
+    {
+        c->cap = c->count = 0;
+    }
 }
 
 void wrap_cache_free(WrapCache *c)
@@ -35,10 +42,13 @@ void wrap_cache_ensure(WrapCache *c, size_t count)
 {
     if (count > c->cap)
     {
-        size_t new_cap = c->cap ? c->cap : 1;
+        size_t new_cap = c->cap > 0 ? c->cap : 1;
         while (new_cap < count)
             new_cap *= 2;
-        c->counts = (int *)realloc(c->counts, new_cap * sizeof(int));
+        int *new_counts = (int *)realloc(c->counts, new_cap * sizeof(int));
+        if (!new_counts)
+            return; /* allocation failed; keep old cache, don't update count */
+        c->counts = new_counts;
         for (size_t i = c->cap; i < new_cap; ++i)
             c->counts[i] = -1;
         c->cap = new_cap;

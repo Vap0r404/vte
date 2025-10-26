@@ -132,7 +132,8 @@ int wrap_draw_line(const char *line, int row, int col_start, int width, size_t c
 
     /* coloff is a column offset, not bytes */
     int start_col = (int)coloff;
-    int total_cols = wrap_cols_for_prefix(line, (size_t)strlen(line)); /* total columns */
+    size_t line_len = strlen(line);
+    int total_cols = wrap_cols_for_prefix(line, line_len); /* total columns */
     /* Ensure we visibly clear at least one row for empty lines or when starting beyond EOL */
     if (total_cols <= 0)
     {

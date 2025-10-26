@@ -64,8 +64,12 @@ int buffer_open_file(const char *path)
         size_t len = strlen(linebuf);
         while (len > 0 && (linebuf[len - 1] == '\n' || linebuf[len - 1] == '\r'))
             linebuf[--len] = '\0';
-        b->lines[b->count] = malloc(len + 1);
-        strcpy(b->lines[b->count], linebuf);
+        char *newline = malloc(len + 1);
+        if (!newline)
+            break; /* out of memory, stop loading */
+        memcpy(newline, linebuf, len);
+        newline[len] = '\0';
+        b->lines[b->count] = newline;
         b->count++;
         if (b->count >= MAX_LINES)
             break;
@@ -73,8 +77,11 @@ int buffer_open_file(const char *path)
     if (b->count == 0)
     {
         b->lines[0] = malloc(1);
-        b->lines[0][0] = '\0';
-        b->count = 1;
+        if (b->lines[0])
+        {
+            b->lines[0][0] = '\0';
+            b->count = 1;
+        }
     }
     fclose(f);
     b->path = strdup(path);

@@ -373,6 +373,17 @@ int main(int argc, char **argv)
     {
         int rows, cols;
         getmaxyx(stdscr, rows, cols);
+        /* Defensive: ensure minimum terminal size to prevent crashes */
+        if (rows < 3 || cols < 10)
+        {
+            clear();
+            mvprintw(0, 0, "Terminal too small");
+            refresh();
+            ch = utf8_getch();
+            if (ch == 'q' || ch == 27)
+                break;
+            continue;
+        }
         int max_display = rows - 2;
 
         /* Calculate line number width */
@@ -618,7 +629,8 @@ int main(int argc, char **argv)
             }
             else if (ch == KEY_RIGHT || ch == 'l')
             {
-                if (cx < strlen(buf->lines[cy]))
+                size_t line_len = strlen(buf->lines[cy]);
+                if (cx < line_len)
                     cx++;
             }
             else if (ch == KEY_UP || ch == 'k')
@@ -626,8 +638,9 @@ int main(int argc, char **argv)
                 if (cy > 0)
                 {
                     cy--;
-                    if (cx > strlen(buf->lines[cy]))
-                        cx = strlen(buf->lines[cy]);
+                    size_t line_len = strlen(buf->lines[cy]);
+                    if (cx > line_len)
+                        cx = line_len;
                     if (cy < rowoff)
                     {
                         rowoff = cy;
@@ -639,8 +652,9 @@ int main(int argc, char **argv)
                 if (cy + 1 < buf->count)
                 {
                     cy++;
-                    if (cx > strlen(buf->lines[cy]))
-                        cx = strlen(buf->lines[cy]);
+                    size_t line_len = strlen(buf->lines[cy]);
+                    if (cx > line_len)
+                        cx = line_len;
                     if (cy >= rowoff + (size_t)max_display)
                     {
                         rowoff = cy - max_display + 1;
@@ -693,8 +707,7 @@ int main(int argc, char **argv)
                     {
                         free(buf->lines[cy]);
                         buf->lines[cy] = tmp;
-                        /* Current line content changed due to take_string; invalidate */
-                        wrap_cache_invalidate_line(&wc, cy);
+                        buf->dirty = 1;
                     }
                     cy--;
                     /* Re-init with new line */
