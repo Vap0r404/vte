@@ -35,7 +35,12 @@ else {
     exit 1
 }
 
-gcc -Wall -Wextra -O2 $cflags -o $exe $src $linkopts
+if ($cflags) {
+    gcc -Wall -Wextra -O2 $cflags -o $exe $src $linkopts
+}
+else {
+    gcc -Wall -Wextra -O2 -o $exe $src $linkopts
+}
 if ($LASTEXITCODE -ne 0) { Write-Error "Build failed"; exit $LASTEXITCODE }
 
 Write-Host "Built: $exe"
