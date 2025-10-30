@@ -1,50 +1,69 @@
 # VTE
 
-`vte` is a tiny, single-file text editor written **COMPLETELY by AI** in C that uses a curses implementation (PDCurses on Windows or ncurses on Unix/WSL).
-It provides a minimal, vim-inspired editing experience: Normal/Insert/Command modes, simple navigation, basic line editing, and single-file open/save.
+`vte` is a tiny cross-platform text editor written **COMPLETELY by AI** in C that uses curses (PDCurses on Windows, ncurses on Unix/Linux/macOS).
+It provides a minimal, vim-inspired editing experience: Normal/Insert/Command modes, simple navigation, basic line editing, and multi-buffer support.
 
 ## What this project is
 
-- A minimal, educational curses-based text editor.
-- Focus is on small, easy-to-read C code with curses UI, simple line-editor logic, and a tiny command mode.
-- Intended as a small and simple replacement for CLI text editors and a starting point for experimentation — add features if you want.
+- A minimal, educational curses-based text editor
+- Cross-platform: Works on Windows, Linux, macOS, and WSL
+- Focus is on small, easy-to-read C code with curses UI, simple line-editor logic, and a tiny command mode
+- Intended as a small and simple replacement for CLI text editors and a starting point for experimentation — add features if you want
 
-## Contents
+## Features
 
-- `src/editor_curses.c` — The core editor
-- `src/config.c` / `src/config.h` — Configuration system (:set commands, .vterc file)
-- `src/modules/` — Modular components (line editing, buffers, syntax, navigation)
-- `src/internal/` — Internal utilities (resize, mouse etc.)
-- `Makefile` — GNU Make rules (also usable from MSYS2/MinGW)
-- `build.ps1` — PowerShell build script (native Windows)
-- `build.bat` — Batch build script (cmd.exe)
+- **Vim-like modes**: Normal, Insert, Command, Search
+- **Multi-buffer support**: Up to 16 files open at once (`:bn`, `:bp` to switch)
+- **UTF-8 support**: Display and editing with codepoint-aware operations
+- **Visual line wrapping**: Column-aware rendering with wrap cache
+- **Mouse support**: Click to position cursor in both Normal and Insert modes
+- **Configuration**: `.vterc` file with `:set` commands
+- **Search**: Forward/backward pattern search with wrapping (`/`, `n`, `N`)
+- **Modular architecture**: Clean separation of concerns (modules, internal utilities, platform layer)
+
+## Project structure
+
+- `src/editor_curses.c` — The core editor loop
+- `src/config.c` / `src/config.h` — Configuration system (`:set` commands, `.vterc` file)
+- `src/modules/` — Modular components (line editing, buffers, syntax, navigation, status)
+- `src/internal/` — Internal utilities (resize, mouse, UTF-8, wrapping, cache)
+- `src/platform/` — Platform abstraction layer (Windows/\*Unix compatibility)
+- `build.ps1` — PowerShell build script (Windows)
+- `build.bat` — Batch build script (Windows cmd.exe)
+- `build.sh` — Bash build script (Unix/Linux/macOS)
+- `Makefile` — Cross-platform GNU Make rules
 
 ## Prerequisites
 
-- A C compiler (GCC from MSYS2/MinGW, or GCC in WSL). If you don't have one, you can:
-  - Install MSYS2 (https://www.msys2.org/) and then install the `mingw-w64` toolchain
-  - Or enable WSL and install `build-essential` in your Linux distro
-  - PDCurses and the library
+### Windows
 
-## This repository contains the editor source and convenient build scripts for Windows and MSYS2/MinGW/WSL.
+- **Compiler**: GCC from [MSYS2/MinGW](https://www.msys2.org/) or WSL
+- **Curses library**: PDCurses (narrow) or pdcursesw (wide, recommended for better Unicode support)
 
-# Quick start
+### Linux/Unix/macOS
 
-## Prerequisites
+- **Compiler**: GCC or Clang (usually pre-installed or via `build-essential`/`base-devel`)
+- **Curses library**: ncurses (usually pre-installed)
+  - Debian/Ubuntu: `sudo apt install libncurses-dev`
+  - Arch: `sudo pacman -S ncurses`
+  - macOS: pre-installed or via Homebrew
 
-- A C compiler (GCC is the usual choice). On Windows you can use MSYS2/MinGW or WSL. On Windows the project links with PDCurses; on WSL/nix use ncurses.
+## Quick start
 
-## Build & run (Windows, PowerShell)
+### Windows (PowerShell)
 
 ```powershell
-# Build and run (PowerShell)
+# Build and run
 .\build.ps1
+
+# Build with wide-character support **(if pdcursesw installed)**
+.\build.ps1 -Wide
 
 # Clean
 .\build.ps1 -Clean
 ```
 
-## Build & run (cmd)
+### Windows (cmd)
 
 ```bat
 :: Build and run
@@ -54,42 +73,86 @@ build.bat
 build.bat clean
 ```
 
-## Build & run (MSYS2 / WSL / make)
+### Linux/Unix/macOS (bash)
 
 ```bash
-# If you have make available
-mingw32-make   # or just 'make'
+# Build
+chmod +x build.sh
+./build.sh
 
-# Run the built executable
-./bin/vte.exe
+# Run
+./bin/vte [filename]
+
+# Clean
+./build.sh clean
+```
+
+### Cross-platform (make)
+
+```bash
+# Build (auto-detects Windows vs Unix)
+make
+
+# Clean
+make clean
 ```
 
 ## Usage
 
-- Start the editor with an optional filename: `./bin/vte.exe path\\to\\file.txt`
-- Normal mode: navigate with `h/j/k/l` or arrow keys. Press `i` to enter INSERT mode.
-- Insert mode: type to insert text, Backspace removes characters, Enter splits the line. Press `Esc` to return to Normal.
-- Command mode: press `:` then type commands like `w`, `w filename`, `q`, `h`/`help` for more info.
+```bash
+# Windows
+.\bin\vte.exe [filename]
 
-## Notes
+# Unix/Linux/macOS
+./bin/vte [filename]
+```
 
-- This is intentionally small and synchronous — curses `getch()` is used in the main loop and the screen is redrawn each iteration.
-- Line editing is implemented in `src/modules/line_edit.c`; the editor copies the in-progress buffer when leaving INSERT mode so you can actually see what you're typing in real time.
-- If you want to help the project, feel free to do it.
+- **Normal mode**: Navigate with `h/j/k/l` or arrow keys. Press `i` to enter INSERT mode.
+- **Insert mode**: Type to insert text, Backspace removes characters, Enter splits the line. Press `Esc` to return to Normal.
+- **Command mode**: Press `:` then type commands:
+  - `:w` — save current buffer
+  - `:w filename` — save as
+  - `:e filename` — open file in new buffer
+  - `:bn` / `:bp` — next/previous buffer
+  - `:q` — quit (all buffers)
+  - `:wq` — save and quit
+  - `:123` — goto line 123
+  - `:h` or `:help` — show help
+  - `:set` — show settings
+- **Search mode**: Press `/` then type pattern, `n` for next match, `N` for previous
 
-## Unicode input on Windows
+## Platform notes
 
-- Rendering and files are UTF‑8. Keyboard input in the Windows console depends on your terminal and the curses library variant available.
-- On some setups (legacy `pdcurses` without wide‑char support), certain composed characters that use dead keys/AltGr (e.g. Polish ó, ą, ć, ń) may not be delivered to the app as a single Unicode codepoint. In those cases, insertion can fail or behave inconsistently.
-- Workarounds:
-  - Use a terminal that handles UTF‑8 and keyboard composition well (Windows Terminal, UTF‑8 locale/code page, a Unicode font like Consolas).
-  - Prefer WSL/Linux where `ncursesw` wide input is standard.
-  - Build with wide curses if available: `.
-build.ps1 -Wide` (requires `pdcursesw` installed and linkable as `-lpdcursesw`). This enables `get_wch()` wide‑character input.
-  - As a last resort, paste text or use OS input methods that produce precomposed characters directly.
+### Windows
 
-If some Unicode characters still don't work in your console environment, it's a known limitation of the minimal curses input path on Windows. PRs to improve the Windows input layer (e.g. using `ReadConsoleInputW`) are very welcome.
+- **UTF-8 input**: Some dead-key combinations may not work with narrow pdcurses. For best results:
+  - Use Windows Terminal with UTF-8 locale
+  - Build with `-Wide` flag (requires pdcursesw)
+  - Or run in WSL where ncurses handles Unicode natively
+- **Binary releases** include precompiled `vte.exe` built with narrow pdcurses
 
----
+### Linux/Unix/macOS
+
+- UTF-8 works out of the box with ncurses
+- Make sure your terminal locale is set to UTF-8 (`LANG=en_US.UTF-8` or similar)
+- Mouse support requires xterm-compatible terminal
+
+## Architecture
+
+vte uses a clean modular design:
+
+- **Platform layer** (`src/platform/`): Abstracts Windows vs Unix differences (console setup, code pages)
+- **Core editor** (`src/editor_curses.c`): Main loop, mode handling, rendering
+- **Modules** (`src/modules/`): Self-contained components (buffers, line editing, navigation, syntax, status)
+- **Internal utilities** (`src/internal/`): UTF-8 handling, wrapping, mouse, resize, caching
+
+This makes it easy to add features, port to new platforms, or understand the codebase.
+
+## Development
+
+- **Adding features**: Most features go in `src/modules/` or `src/internal/`
+- **Platform-specific code**: Goes in `src/platform/platform.c` with `#ifdef` guards
+- **Build system**: Update all three build scripts (`.ps1`, `.bat`, `.sh`) and `Makefile` when adding files
+- **Testing**: Test on both Windows and Unix when making changes to core or platform code---
 
 If you maintain a fork or add features, consider updating this README with a short summary of the added capabilities.

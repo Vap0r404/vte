@@ -26,9 +26,7 @@ typedef enum
 #include "internal/utf8.h"
 #include "internal/wrap_cache.h"
 #include "internal/utf8_edit.h"
-#ifdef _WIN32
-#include <windows.h>
-#endif
+#include "platform/platform.h"
 
 static void show_help(void)
 {
@@ -349,14 +347,8 @@ int main(int argc, char **argv)
 
     /* Enable locale so curses treats UTF-8 correctly */
     setlocale(LC_ALL, "");
-#ifdef _WIN32
-    /* For wide-curses builds, input/output go through wide APIs, so no need to force code pages.
-       For narrow builds, forcing UTF-8 helps when decoding multibyte sequences. */
-#ifndef PDC_WIDE
-    SetConsoleCP(65001);
-    SetConsoleOutputCP(65001);
-#endif
-#endif
+    /* Platform-specific initialization (console code pages on Windows, etc.) */
+    platform_init();
     initscr();
     /* Prefer cbreak over raw: allows wide input to compose dead keys on Windows better */
     cbreak();
