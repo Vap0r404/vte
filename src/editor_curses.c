@@ -19,6 +19,8 @@ typedef enum
 #include "modules/syntax.h"
 #include "modules/navigation.h"
 #include "modules/status.h"
+#include "modules/undo.h"
+#include "modules/clipboard.h"
 #include "internal/resize.h"
 #include "internal/mouse.h"
 #include "internal/wrap.h"
@@ -50,6 +52,10 @@ static void show_help(void)
         "  /          - pattern search mode",
         "  n          - find next match (forward)",
         "  N          - find previous match (backward)",
+        "  y          - yank (copy) current line",
+        "  p          - paste yanked content",
+        "  Ctrl+Z     - undo last change",
+        "  Ctrl+Y     - redo last undone change",
         "",
         "Buffers:",
         "  vte supports multiple buffers (up to 16 files open at once).",
@@ -289,6 +295,8 @@ int main(int argc, char **argv)
 {
     /* initialize buffer pool and set current buffer */
     buffer_pool_init();
+    undo_init();
+    clipboard_init();
     if (argc >= 2)
     {
         if (buffer_open_file(argv[1]) < 0)
@@ -608,6 +616,321 @@ int main(int argc, char **argv)
                     snprintf(status, sizeof(status), "No previous search");
                 continue;
             }
+            if (ch == 26) /* Ctrl+Z for undo */
+            {
+                const UndoAction *action = undo_peek();
+                if (action)
+                {
+                    /* Perform undo based on action type */
+                    switch (action->type)
+                    {
+                    case UNDO_INSERT_CHAR:
+                        /* Remove character that was inserted */
+                        if (action->line < buf->count)
+                        {
+                            LineEdit temp_le;
+                            le_init(&temp_le, buf->lines[action->line]);
+                            temp_le.pos = action->pos + strlen(action->data);
+                            if (le_backspace_cp(&temp_le))
+                            {
+                                char *new_line = le_take_string(&temp_le);
+                                if (new_line)
+                                {
+                                    free(buf->lines[action->line]);
+                                    buf->lines[action->line] = new_line;
+                                    buf->dirty = 1;
+                                    cy = action->line;
+                                    cx = action->pos;
+                                }
+                            }
+                            le_free(&temp_le);
+                        }
+                        break;
+                    case UNDO_DELETE_CHAR:
+                        /* Re-insert character that was deleted */
+                        if (action->line < buf->count && action->data)
+                        {
+                            LineEdit temp_le;
+                            le_init(&temp_le, buf->lines[action->line]);
+                            temp_le.pos = action->pos;
+                            for (const char *p = action->data; *p; p++)
+                                le_insert_char(&temp_le, *p);
+                            char *new_line = le_take_string(&temp_le);
+                            if (new_line)
+                            {
+                                free(buf->lines[action->line]);
+                                buf->lines[action->line] = new_line;
+                                buf->dirty = 1;
+                                cy = action->line;
+                                cx = action->pos + strlen(action->data);
+                            }
+                            le_free(&temp_le);
+                        }
+                        break;
+                    case UNDO_INSERT_LINE:
+                        /* Remove line that was created */
+                        if (action->line + 1 < buf->count)
+                        {
+                            /* Join lines back */
+                            free(buf->lines[action->line + 1]);
+                            for (size_t i = action->line + 1; i < buf->count - 1; ++i)
+                                buf->lines[i] = buf->lines[i + 1];
+                            buf->count--;
+                            /* Restore original line */
+                            if (action->data)
+                            {
+                                free(buf->lines[action->line]);
+                                buf->lines[action->line] = strdup(action->data);
+                            }
+                            buf->dirty = 1;
+                            cy = action->line;
+                            cx = strlen(buf->lines[cy]);
+                            wrap_cache_ensure(&wc, buf->count);
+                            wrap_cache_invalidate_all(&wc);
+                        }
+                        break;
+                    case UNDO_DELETE_LINE:
+                        /* Re-insert line that was deleted (line join undo) */
+                        if (action->line < buf->count && action->data)
+                        {
+                            /* Split at the saved position - for now, simple append */
+                            if (buf->count + 1 < MAX_LINES)
+                            {
+                                for (size_t i = buf->count; i > action->line + 1; --i)
+                                    buf->lines[i] = buf->lines[i - 1];
+                                buf->lines[action->line + 1] = strdup(action->data);
+                                buf->count++;
+                                buf->dirty = 1;
+                                cy = action->line + 1;
+                                cx = 0;
+                                wrap_cache_ensure(&wc, buf->count);
+                                wrap_cache_invalidate_all(&wc);
+                            }
+                        }
+                        break;
+                    case UNDO_REPLACE_LINE:
+                        /* Restore old line content */
+                        if (action->line < buf->count && action->data)
+                        {
+                            free(buf->lines[action->line]);
+                            buf->lines[action->line] = strdup(action->data);
+                            buf->dirty = 1;
+                            cy = action->line;
+                            cx = strlen(buf->lines[cy]);
+                            wrap_cache_invalidate_line(&wc, cy);
+                        }
+                        break;
+                    }
+
+                    /* Move action to redo stack */
+                    UndoAction copy = *action;
+                    copy.data = action->data ? strdup(action->data) : NULL;
+                    copy.data2 = action->data2 ? strdup(action->data2) : NULL;
+                    undo_push_to_redo(&copy);
+                    undo_pop();
+
+                    snprintf(status, sizeof(status), "Undo");
+                }
+                else
+                    snprintf(status, sizeof(status), "Nothing to undo");
+                continue;
+            }
+            if (ch == 25) /* Ctrl+Y for redo */
+            {
+                const UndoAction *action = redo_peek();
+                if (action)
+                {
+                    /* Debug: show what type of action we're redoing */
+                    if (action->type == UNDO_REPLACE_LINE && !action->data2)
+                    {
+                        snprintf(status, sizeof(status), "Redo failed: no new content stored");
+                        redo_pop();
+                        continue;
+                    }
+
+                    /* Perform redo - reapply the original change that was undone */
+                    /* For redo, we need to reverse the undo operation */
+                    switch (action->type)
+                    {
+                    case UNDO_INSERT_CHAR:
+                        /* Undo removed this char, redo removes it again (delete) */
+                        if (action->line < buf->count)
+                        {
+                            LineEdit temp_le;
+                            le_init(&temp_le, buf->lines[action->line]);
+                            temp_le.pos = action->pos + strlen(action->data);
+                            if (le_backspace_cp(&temp_le))
+                            {
+                                char *new_line = le_take_string(&temp_le);
+                                if (new_line)
+                                {
+                                    free(buf->lines[action->line]);
+                                    buf->lines[action->line] = new_line;
+                                    buf->dirty = 1;
+                                    cy = action->line;
+                                    cx = action->pos;
+                                }
+                            }
+                            le_free(&temp_le);
+                        }
+                        break;
+                    case UNDO_DELETE_CHAR:
+                        /* Undo restored this char, redo restores it again */
+                        if (action->line < buf->count && action->data)
+                        {
+                            LineEdit temp_le;
+                            le_init(&temp_le, buf->lines[action->line]);
+                            temp_le.pos = action->pos;
+                            for (const char *p = action->data; *p; p++)
+                                le_insert_char(&temp_le, *p);
+                            char *new_line = le_take_string(&temp_le);
+                            if (new_line)
+                            {
+                                free(buf->lines[action->line]);
+                                buf->lines[action->line] = new_line;
+                                buf->dirty = 1;
+                                cy = action->line;
+                                cx = action->pos + strlen(action->data);
+                            }
+                            le_free(&temp_le);
+                        }
+                        break;
+                    case UNDO_INSERT_LINE:
+                        /* Undo removed the inserted line, redo removes it again */
+                        if (action->line + 1 < buf->count)
+                        {
+                            free(buf->lines[action->line + 1]);
+                            for (size_t i = action->line + 1; i < buf->count - 1; ++i)
+                                buf->lines[i] = buf->lines[i + 1];
+                            buf->count--;
+                            buf->dirty = 1;
+                            cy = action->line;
+                            cx = strlen(buf->lines[cy]);
+                            wrap_cache_ensure(&wc, buf->count);
+                            wrap_cache_invalidate_all(&wc);
+                        }
+                        break;
+                    case UNDO_DELETE_LINE:
+                        /* Undo restored the deleted line, redo restores it again */
+                        if (action->line < buf->count && action->data)
+                        {
+                            if (buf->count + 1 < MAX_LINES)
+                            {
+                                for (size_t i = buf->count; i > action->line + 1; --i)
+                                    buf->lines[i] = buf->lines[i - 1];
+                                buf->lines[action->line + 1] = strdup(action->data);
+                                buf->count++;
+                                buf->dirty = 1;
+                                cy = action->line + 1;
+                                cx = 0;
+                                wrap_cache_ensure(&wc, buf->count);
+                                wrap_cache_invalidate_all(&wc);
+                            }
+                        }
+                        break;
+                    case UNDO_REPLACE_LINE:
+                        /* Undo restored old content (data), redo restores new content (data2) */
+                        if (action->line < buf->count)
+                        {
+                            if (action->data2)
+                            {
+                                /* Restore the "new" content that was there before undo */
+                                free(buf->lines[action->line]);
+                                buf->lines[action->line] = strdup(action->data2);
+                                buf->dirty = 1;
+                                cy = action->line;
+                                cx = strlen(buf->lines[cy]);
+                                wrap_cache_invalidate_line(&wc, cy);
+                            }
+                            else
+                            {
+                                /* No new content stored, can't redo properly */
+                                snprintf(status, sizeof(status), "Redo not available for this change");
+                            }
+                        }
+                        break;
+                    }
+
+                    /* Move back to undo stack (for all types that succeeded) */
+                    int should_push = 1;
+                    if (action->type == UNDO_REPLACE_LINE && !action->data2)
+                        should_push = 0; /* Don't push back if we couldn't redo */
+
+                    if (should_push)
+                    {
+                        UndoAction copy = *action;
+                        copy.data = action->data ? strdup(action->data) : NULL;
+                        copy.data2 = action->data2 ? strdup(action->data2) : NULL;
+                        /* Push back to undo stack */
+                        redo_push_to_undo(&copy);
+                        redo_pop();
+                        snprintf(status, sizeof(status), "Redo");
+                    }
+                    else
+                    {
+                        redo_pop(); /* Still remove from redo stack */
+                    }
+                }
+                else
+                    snprintf(status, sizeof(status), "Nothing to redo");
+                continue;
+            }
+            if (ch == 'y') /* Yank (copy) current line */
+            {
+                clipboard_yank_line(buf->lines[cy]);
+                snprintf(status, sizeof(status), "Yanked line %zu", cy + 1);
+                continue;
+            }
+            if (ch == 'p') /* Paste */
+            {
+                if (clipboard_has_content())
+                {
+                    char *content = clipboard_paste();
+                    if (content && clipboard_type() == CLIP_LINE)
+                    {
+                        /* Insert as new line below current */
+                        if (buf->count + 1 < MAX_LINES)
+                        {
+                            for (size_t i = buf->count; i > cy + 1; --i)
+                                buf->lines[i] = buf->lines[i - 1];
+                            buf->lines[cy + 1] = content;
+                            buf->count++;
+                            buf->dirty = 1;
+                            cy++;
+                            cx = 0;
+                            wrap_cache_ensure(&wc, buf->count);
+                            wrap_cache_invalidate_all(&wc);
+                            snprintf(status, sizeof(status), "Pasted line");
+                        }
+                        else
+                            free(content);
+                    }
+                    else if (content)
+                    {
+                        /* Insert at cursor position */
+                        LineEdit temp_le;
+                        le_init(&temp_le, buf->lines[cy]);
+                        temp_le.pos = cx;
+                        for (const char *p = content; *p; p++)
+                            le_insert_char(&temp_le, *p);
+                        char *new_line = le_take_string(&temp_le);
+                        if (new_line)
+                        {
+                            free(buf->lines[cy]);
+                            buf->lines[cy] = new_line;
+                            buf->dirty = 1;
+                            cx += strlen(content);
+                            wrap_cache_invalidate_line(&wc, cy);
+                            snprintf(status, sizeof(status), "Pasted");
+                        }
+                        le_free(&temp_le);
+                        free(content);
+                    }
+                }
+                else
+                    snprintf(status, sizeof(status), "Clipboard empty");
+                continue;
+            }
             if (ch == 'i')
             {
                 mode = MODE_INSERT;
@@ -659,6 +982,7 @@ int main(int argc, char **argv)
             /* initialize line editor for the current line when first entering INSERT */
             if (!le_active)
             {
+                /* Don't record undo here - we'll do it when we exit INSERT mode */
                 le_init(&le, buf->lines[cy]);
                 le.pos = cx;
                 le_active = 1;
@@ -670,6 +994,13 @@ int main(int argc, char **argv)
                 char *newline = le_take_string(&le);
                 if (newline)
                 {
+                    /* Only record undo if the line actually changed */
+                    if (strcmp(buf->lines[cy], newline) != 0)
+                    {
+                        undo_clear_redo(); /* New edit action clears redo stack */
+                        undo_push_replace_line_full(cy, buf->lines[cy], newline);
+                    }
+
                     free(buf->lines[cy]);
                     buf->lines[cy] = newline;
                     buf->dirty = 1;
@@ -771,6 +1102,10 @@ int main(int argc, char **argv)
                         char *joined = realloc(buf->lines[cy - 1], prevlen + le.len + 1);
                         if (joined)
                         {
+                            /* Record the line that will be deleted for undo */
+                            undo_clear_redo();
+                            undo_push_delete_line(cy, buf->lines[cy]);
+
                             memcpy(joined + prevlen, le.buf, le.len + 1);
                             buf->lines[cy - 1] = joined;
                             free(buf->lines[cy]);
@@ -795,6 +1130,14 @@ int main(int argc, char **argv)
                 /* split the current line at cursor */
                 char *right = le_split(&le);
                 char *left = le_take_string(&le);
+
+                /* Record the line split for undo */
+                if (left && right)
+                {
+                    undo_clear_redo();
+                    undo_push_insert_line(cy, left, right);
+                }
+
                 if (left)
                 {
                     free(buf->lines[cy]);
@@ -862,6 +1205,8 @@ int main(int argc, char **argv)
     }
 
     endwin();
+    undo_free();
+    clipboard_free();
     buffer_free_all();
     return 0;
 }

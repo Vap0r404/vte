@@ -17,6 +17,8 @@ It provides a minimal, vim-inspired editing experience: Normal/Insert/Command mo
 - **UTF-8 support**: Display and editing with codepoint-aware operations
 - **Visual line wrapping**: Column-aware rendering with wrap cache
 - **Mouse support**: Click to position cursor in both Normal and Insert modes
+- **Undo/Redo**: Full undo and redo support with Ctrl+Z and Ctrl+Y
+- **Clipboard**: Yank (copy) and paste lines with `y` and `p`
 - **Configuration**: `.vterc` file with `:set` commands
 - **Search**: Forward/backward pattern search with wrapping (`/`, `n`, `N`)
 - **Modular architecture**: Clean separation of concerns (modules, internal utilities, platform layer)
@@ -108,6 +110,10 @@ make clean
 ```
 
 - **Normal mode**: Navigate with `h/j/k/l` or arrow keys. Press `i` to enter INSERT mode.
+  - `y` — yank (copy) current line to clipboard
+  - `p` — paste clipboard content (line or character)
+  - `Ctrl+Z` — undo last change
+  - `Ctrl+Y` — redo last undone change
 - **Insert mode**: Type to insert text, Backspace removes characters, Enter splits the line. Press `Esc` to return to Normal.
 - **Command mode**: Press `:` then type commands:
   - `:w` — save current buffer

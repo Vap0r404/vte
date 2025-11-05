@@ -30,6 +30,8 @@ gcc -Wall -Wextra -O2 -D_XOPEN_SOURCE_EXTENDED \
     src/modules/syntax.c \
     src/modules/navigation.c \
     src/modules/status.c \
+    src/modules/undo.c \
+    src/modules/clipboard.c \
     src/internal/resize.c \
     src/internal/mouse.c \
     src/internal/wrap.c \

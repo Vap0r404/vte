@@ -24,7 +24,7 @@ else
     CFLAGS += -D_XOPEN_SOURCE_EXTENDED
 endif
 
-CURSES_SRC = src/editor_curses.c src/config.c src/modules/line_edit.c src/modules/buffer.c src/modules/syntax.c src/modules/navigation.c src/modules/status.c src/internal/resize.c src/internal/mouse.c src/internal/wrap.c src/internal/wrap_cache.c src/internal/utf8.c src/internal/utf8_edit.c src/platform/platform.c
+CURSES_SRC = src/editor_curses.c src/config.c src/modules/line_edit.c src/modules/buffer.c src/modules/syntax.c src/modules/navigation.c src/modules/status.c src/modules/undo.c src/modules/clipboard.c src/internal/resize.c src/internal/mouse.c src/internal/wrap.c src/internal/wrap_cache.c src/internal/utf8.c src/internal/utf8_edit.c src/platform/platform.c
 VTE = bin/vte$(EXE_EXT)
 
 all: vte
